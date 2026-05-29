@@ -1,0 +1,54 @@
+repo:
+  path: /tmp/test-repo
+  base_branch: main
+  worktree_dir: /tmp/test-worktrees
+  worktree_hooks:
+    - pre-create
+    - post-remove
+
+opencode:
+  config_path: /tmp/test-opencode.json
+  timeout_seconds: 1800
+  max_continues: 5
+  planner:
+    model: test-planner-model
+    variant: planner-v1
+    agent: planner-agent
+  test_writer:
+    model: test-writer-model
+    variant: ""
+    agent: ""
+  test_reviewer:
+    model: test-reviewer-model
+    variant: ""
+    agent: ""
+  coder_default:
+    model: test-coder-model
+    variant: coder-v2
+    agent: coder-agent
+  coder_by_complexity:
+    very_complex:
+      model: complex-model
+    simple:
+      model: simple-model
+  reviewers:
+    - model: reviewer-1-model
+      variant: r1-variant
+      agent: r1-agent
+    - model: reviewer-2-model
+      variant: ""
+      agent: ""
+
+orchestrator:
+  max_parallel_tasks: 5
+  max_test_retries: 3
+  max_code_retries: 6
+  poll_interval_seconds: 15
+
+mysql:
+  url: jdbc:mysql://localhost:3306/testdb
+  username: test_user
+  password: test_pass
+
+publish:
+  remote: test-remote
