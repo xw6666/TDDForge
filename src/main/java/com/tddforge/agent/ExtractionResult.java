@@ -36,10 +36,6 @@ public record ExtractionResult<T>(
         return new ExtractionResult<>(null, List.of(), error, rawOutput);
     }
 
-    public static <T> ExtractionResult<T> partialWithWarnings(T result, List<String> warnings, String rawOutput) {
-        return new ExtractionResult<>(result, Collections.unmodifiableList(warnings), null, rawOutput);
-    }
-
     public boolean hasCriticalError() {
         return criticalError != null && !criticalError.isBlank();
     }

@@ -29,15 +29,19 @@ public class AgentOutputExtractor {
     private static final Pattern COMMIT_HASH_PATTERN = Pattern.compile(
             "(?:commit(?:\\s+hash)?|committed?)(?:\\s*[:=])?[ \\t]*`?([0-9a-f]{7,40})`?",
             Pattern.CASE_INSENSITIVE);
-    private static final Pattern COMMIT_MSG_PATTERN = Pattern.compile(
-            "(?:commit(?:\\s+message)?|message)(?:\\s*[:=])?[ \\t]*[`'\"]?(.+?)[`'\"]?[ \\t]*$",
-            Pattern.CASE_INSENSITIVE | Pattern.MULTILINE);
 
-    private static final Set<String> TEST_ISSUE_KEYWORDS = Set.of(
-            "test", "tests", "testing", "coverage", "assertion", "assertions",
-            "weak test", "invalid test", "test coverage", "test was weakened",
-            "skipped test", "fixture", "test fixture"
-    );
+    private static final Pattern TEST_ISSUE_PATTERN = Pattern.compile(
+            "\\b(?:test|tests|testing|coverage|assertion|assertions|weak test|invalid test|test coverage|test was weakened|skipped test|fixture|test fixture)\\b",
+            Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern LABELED_COMMAND_PATTERN = Pattern.compile(
+            "(?:test command|command(?:s)? run)(?:\\s*[:=])?[ \\t]*`?([^\\n`]+)`?",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern BACKTICK_COMMAND_PATTERN = Pattern.compile(
+            "`([^`]+)`", Pattern.CASE_INSENSITIVE);
+    private static final Pattern BARE_COMMAND_PATTERN = Pattern.compile(
+            "(?:(?:mvn|gradle|npm|npx|pytest|jest|cargo|dotnet|make)\\s+[^\\n]{1,100})",
+            Pattern.CASE_INSENSITIVE);
 
     private static final String DEFAULT_FEEDBACK = "(no feedback provided)";
 
@@ -288,10 +292,7 @@ public class AgentOutputExtractor {
         if (text == null) return null;
 
         // First: look for "test command: <value>" or similar labeled patterns
-        Pattern labeledPattern = Pattern.compile(
-                "(?:test command|command(?:s)? run)(?:\\s*[:=])?[ \\t]*`?([^\\n`]+)`?",
-                Pattern.CASE_INSENSITIVE);
-        Matcher labeledMatcher = labeledPattern.matcher(text);
+        Matcher labeledMatcher = LABELED_COMMAND_PATTERN.matcher(text);
         if (labeledMatcher.find()) {
             String candidate = labeledMatcher.group(1).trim();
             if (!candidate.isEmpty()) {
@@ -300,8 +301,7 @@ public class AgentOutputExtractor {
         }
 
         // Second: look for backtick-enclosed commands with test-related keywords
-        Pattern backtickPattern = Pattern.compile("`([^`]+)`", Pattern.CASE_INSENSITIVE);
-        Matcher backtickMatcher = backtickPattern.matcher(text);
+        Matcher backtickMatcher = BACKTICK_COMMAND_PATTERN.matcher(text);
         while (backtickMatcher.find()) {
             String candidate = backtickMatcher.group(1).trim();
             if (isLikelyTestCommand(candidate)) {
@@ -310,10 +310,7 @@ public class AgentOutputExtractor {
         }
 
         // Third: look for bare test runner commands
-        Pattern barePattern = Pattern.compile(
-                "(?:(?:mvn|gradle|npm|npx|pytest|jest|cargo|dotnet|make)\\s+[^\\n]{1,100})",
-                Pattern.CASE_INSENSITIVE);
-        Matcher bareMatcher = barePattern.matcher(text);
+        Matcher bareMatcher = BARE_COMMAND_PATTERN.matcher(text);
         if (bareMatcher.find()) {
             return bareMatcher.group().trim();
         }
@@ -415,7 +412,7 @@ public class AgentOutputExtractor {
     private String extractTestResult(String text) {
         if (text == null) return null;
         Pattern[] patterns = {
-                Pattern.compile("(?:test (?:result|outcome|status)|pass/fail result):?\\s*`?([^\\n`]+)`?", Pattern.CASE_INSENSITIVE),
+                Pattern.compile("(?:test (?:result|outcome|status)|pass/fail result):?[ \\t]*`?([^\\n`]+)`?", Pattern.CASE_INSENSITIVE),
                 Pattern.compile("All tests? (?:passed|pass)\\.?", Pattern.CASE_INSENSITIVE),
                 Pattern.compile("\\d+ (?:test|spec)s? (?:passed|failed|total)", Pattern.CASE_INSENSITIVE)
         };
@@ -475,11 +472,9 @@ public class AgentOutputExtractor {
         if (feedback == null || feedback.isBlank() || feedback.equals(DEFAULT_FEEDBACK)) {
             return "unclear";
         }
-        String lower = feedback.toLowerCase();
-        for (String keyword : TEST_ISSUE_KEYWORDS) {
-            if (lower.contains(keyword)) {
-                return "test_issue";
-            }
+        Matcher m = TEST_ISSUE_PATTERN.matcher(feedback);
+        if (m.find()) {
+            return "test_issue";
         }
         return "implementation_issue";
     }

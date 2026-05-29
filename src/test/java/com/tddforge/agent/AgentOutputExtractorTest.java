@@ -744,5 +744,20 @@ class AgentOutputExtractorTest {
 
             assertThat(result.hasCriticalError()).isTrue();
         }
+
+        @Test
+        void shouldNotFalsePositiveOnSubstringTestKeyword() {
+            String text = """
+                    REQUEST_CHANGES
+
+                    This is the contest winner. The latest changes need rework.
+                    """;
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+
+            assertThat(result.result().category()).isEqualTo("implementation_issue");
+        }
     }
 }
