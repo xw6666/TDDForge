@@ -31,7 +31,6 @@ public class TaskExecutionService {
     private final TestReviewerAgent testReviewerAgent;
     private final CoderAgent coderAgent;
     private final ReviewerAgent reviewerAgent;
-    private final AgentOutputExtractor outputExtractor;
     private final PlannerService plannerService;
     private final WorktreeManager worktreeManager;
     private final OrchestratorConfig orchestratorConfig;
@@ -46,7 +45,6 @@ public class TaskExecutionService {
                                 TestReviewerAgent testReviewerAgent,
                                 CoderAgent coderAgent,
                                 ReviewerAgent reviewerAgent,
-                                AgentOutputExtractor outputExtractor,
                                 PlannerService plannerService,
                                 WorktreeManager worktreeManager,
                                 OrchestratorConfig orchestratorConfig,
@@ -60,7 +58,6 @@ public class TaskExecutionService {
         this.testReviewerAgent = testReviewerAgent;
         this.coderAgent = coderAgent;
         this.reviewerAgent = reviewerAgent;
-        this.outputExtractor = outputExtractor;
         this.plannerService = plannerService;
         this.worktreeManager = worktreeManager;
         this.orchestratorConfig = orchestratorConfig;
@@ -191,7 +188,7 @@ public class TaskExecutionService {
             return new ExecutionOutcome.Failed(task, error);
         }
 
-        saveAgentRun(result.agentRun(), task.getId(), "planner");
+        saveAgentRun(result.agentRun());
 
         if (result.agentRun().sessionId() != null && !result.agentRun().sessionId().isBlank()) {
             task.addSessionId(result.agentRun().sessionId());
@@ -305,7 +302,7 @@ public class TaskExecutionService {
             return handleTestWriteFailure(task, "TestWriter execution exception: " + e.getMessage());
         }
 
-        saveAgentRun(result.agentRun(), task.getId(), "test_writer");
+        saveAgentRun(result.agentRun());
         if (result.agentRun().sessionId() != null && !result.agentRun().sessionId().isBlank()) {
             task.addSessionId(result.agentRun().sessionId());
         }
@@ -324,15 +321,15 @@ public class TaskExecutionService {
         task.setUpdatedAt(Instant.now());
         saveTask(task);
 
-if ("INVALID".equals(twResult.resultClassification())) {
-                return handleTestWriteRetry(task, "TestWriter self-check result: INVALID", maxTestRetries);
-            }
+        if ("INVALID".equals(twResult.resultClassification())) {
+            return handleTestWriteRetry(task, "TestWriter self-check result: INVALID", maxTestRetries);
+        }
 
-            task.setStatus(TaskStatus.TEST_REVIEWING);
-            task.setUpdatedAt(Instant.now());
-            saveTask(task);
-            recordEvent(task, "TEST_WRITING_PASSED", "TestWriter result: " + twResult.resultClassification());
-            return new ExecutionOutcome.Success(task);
+        task.setStatus(TaskStatus.TEST_REVIEWING);
+        task.setUpdatedAt(Instant.now());
+        saveTask(task);
+        recordEvent(task, "TEST_WRITING_PASSED", "TestWriter result: " + twResult.resultClassification());
+        return new ExecutionOutcome.Success(task);
     }
 
     private ExecutionOutcome handleTestWriteFailure(Task task, String error) {
@@ -397,7 +394,7 @@ if ("INVALID".equals(twResult.resultClassification())) {
             return new ExecutionOutcome.Failed(task, error);
         }
 
-        saveAgentRun(result.agentRun(), task.getId(), "test_reviewer");
+        saveAgentRun(result.agentRun());
         if (result.agentRun().sessionId() != null && !result.agentRun().sessionId().isBlank()) {
             task.addSessionId(result.agentRun().sessionId());
         }
@@ -504,7 +501,7 @@ if ("INVALID".equals(twResult.resultClassification())) {
             return new ExecutionOutcome.Success(task);
         }
 
-        saveAgentRun(result.agentRun(), task.getId(), "coder");
+        saveAgentRun(result.agentRun());
         if (result.agentRun().sessionId() != null && !result.agentRun().sessionId().isBlank()) {
             task.addSessionId(result.agentRun().sessionId());
         }
@@ -542,11 +539,11 @@ if ("INVALID".equals(twResult.resultClassification())) {
         }
 
 CoderResult coderResult = result.extractionResult().result();
-            task.setCodeOutput(result.agentRun().output());
-            task.setStatus(TaskStatus.REVIEWING);
-            task.setUpdatedAt(Instant.now());
-            saveTask(task);
-            recordEvent(task, "CODING_PASSED", "Coder completed: " + truncate(coderResult.summary(), 200));
+        task.setCodeOutput(result.agentRun().output());
+        task.setStatus(TaskStatus.REVIEWING);
+        task.setUpdatedAt(Instant.now());
+        saveTask(task);
+        recordEvent(task, "CODING_PASSED", "Coder completed: " + truncate(coderResult.summary(), 200));
         return new ExecutionOutcome.Success(task);
     }
 
@@ -585,7 +582,7 @@ CoderResult coderResult = result.extractionResult().result();
             return new ExecutionOutcome.Failed(task, error);
         }
 
-        saveAgentRun(result.agentRun(), task.getId(), "reviewer");
+        saveAgentRun(result.agentRun());
         if (result.agentRun().sessionId() != null && !result.agentRun().sessionId().isBlank()) {
             task.addSessionId(result.agentRun().sessionId());
         }
@@ -725,7 +722,7 @@ CoderResult coderResult = result.extractionResult().result();
         taskRepository.save(entity);
     }
 
-    private void saveAgentRun(AgentRun agentRun, String taskId, String agentType) {
+    private void saveAgentRun(AgentRun agentRun) {
         if (agentRun == null) return;
         AgentRunEntity entity = AgentRunEntity.fromDomain(agentRun);
         agentRunRepository.save(entity);

@@ -1,6 +1,5 @@
 package com.tddforge.persistence;
 
-import com.tddforge.domain.TaskEvent;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

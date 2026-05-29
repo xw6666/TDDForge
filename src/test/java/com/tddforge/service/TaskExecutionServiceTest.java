@@ -45,7 +45,6 @@ class TaskExecutionServiceTest {
     @Mock private TestReviewerAgent testReviewerAgent;
     @Mock private CoderAgent coderAgent;
     @Mock private ReviewerAgent reviewerAgent;
-    @Mock private AgentOutputExtractor outputExtractor;
 
     private AgentOutputExtractor realExtractor;
     private PlannerService plannerService;
@@ -85,7 +84,7 @@ class TaskExecutionServiceTest {
         service = new TaskExecutionService(
                 taskRepository, agentRunRepository, taskEventRepository,
                 plannerAgent, testWriterAgent, testReviewerAgent, coderAgent, reviewerAgent,
-                outputExtractor, plannerService, worktreeManager,
+                plannerService, worktreeManager,
                 orchestratorConfig, opencodeConfig, repoConfig
         );
     }
