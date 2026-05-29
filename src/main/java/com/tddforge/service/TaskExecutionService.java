@@ -292,6 +292,11 @@ public class TaskExecutionService {
     }
 
     private ExecutionOutcome continueAfterPlanning(Task task) {
+        task = reloadTask(task.getId());
+        if (task.getStatus() == TaskStatus.CANCELLED) {
+            return new ExecutionOutcome.Cancelled(task);
+        }
+
         if (task.getBranchName() == null || task.getBranchName().isBlank()) {
             String branchName = worktreeManager.generateBranchName(task.getId(), task.getTitle());
             task.setBranchName(branchName);

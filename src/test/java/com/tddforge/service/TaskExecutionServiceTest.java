@@ -1418,5 +1418,63 @@ class TaskExecutionServiceTest {
             verify(coderAgent, never()).run(any());
             verify(reviewerAgent, never()).run(any());
         }
+
+        @Test
+        void shouldStopAfterPlanningWhenTaskCancelledDuringPlanning() {
+            Task task = createDefaultTask();
+            AtomicReference<TaskEntity> latestEntity = new AtomicReference<>(TaskEntity.fromDomain(task));
+            lenient().when(taskRepository.save(any(TaskEntity.class))).thenAnswer(invocation -> {
+                TaskEntity entity = invocation.getArgument(0);
+                latestEntity.set(entity);
+                return entity;
+            });
+            lenient().when(agentRunRepository.save(any(AgentRunEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            lenient().when(taskEventRepository.save(any(TaskEventEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            String plannerJson = "{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Simple\",\"plan\":\"Do the thing\"}";
+            AgentRun plannerRun = createAgentRun(ndjsonWithText(plannerJson), 0);
+            ExtractionResult<PlannerResult> plannerExtract = realExtractor.extractPlannerResult(plannerRun);
+            when(plannerAgent.run(any())).thenReturn(new AgentResult<>(plannerRun, plannerExtract));
+
+            AtomicInteger findByIdCalls = new AtomicInteger(0);
+            when(taskRepository.findById("task-1")).thenAnswer(invocation -> {
+                TaskEntity entity = latestEntity.get();
+                int call = findByIdCalls.incrementAndGet();
+                if (call >= 2 && entity.getStatus() != TaskStatus.CANCELLED) {
+                    entity.setStatus(TaskStatus.CANCELLED);
+                }
+                return Optional.of(entity);
+            });
+
+            TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
+
+            assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.Cancelled.class);
+            verify(plannerAgent).run(any());
+            verify(testWriterAgent, never()).run(any());
+            verify(coderAgent, never()).run(any());
+            verify(reviewerAgent, never()).run(any());
+        }
+
+        @Test
+        void shouldPreserveWorktreeAndAgentRunsWhenCancelled() {
+            Task task = createDefaultTask();
+            task.setStatus(TaskStatus.CANCELLED);
+            task.setWorktreePath("/worktrees/task-1");
+            task.setBranchName("task-1/test-task");
+            AgentRun existingRun = createAgentRun("some output", 0);
+            when(taskRepository.findById("task-1")).thenReturn(Optional.of(TaskEntity.fromDomain(task)));
+            when(agentRunRepository.findByTaskIdOrderByCreatedAtDesc("task-1"))
+                    .thenReturn(List.of(AgentRunEntity.fromDomain(existingRun)));
+
+            TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
+
+            assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.Cancelled.class);
+            TaskExecutionService.ExecutionOutcome.Cancelled cancelled = (TaskExecutionService.ExecutionOutcome.Cancelled) outcome;
+            assertThat(cancelled.task().getWorktreePath()).isEqualTo("/worktrees/task-1");
+            assertThat(cancelled.task().getBranchName()).isEqualTo("task-1/test-task");
+
+            verify(worktreeManager, never()).removeWorktree(any());
+            verify(taskRepository, never()).delete(any());
+        }
     }
 }

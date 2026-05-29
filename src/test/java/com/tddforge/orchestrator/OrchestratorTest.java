@@ -2,6 +2,7 @@ package com.tddforge.orchestrator;
 
 import com.tddforge.config.OrchestratorConfig;
 import com.tddforge.domain.*;
+import com.tddforge.opencode.OpenCodeClient;
 import com.tddforge.persistence.TaskEntity;
 import com.tddforge.persistence.TaskRepository;
 import com.tddforge.service.DependencyTracker;
@@ -35,6 +36,8 @@ class OrchestratorTest {
     private DependencyTracker dependencyTracker;
     @Mock
     private TaskExecutionService taskExecutionService;
+    @Mock
+    private OpenCodeClient openCodeClient;
 
     private OrchestratorConfig orchestratorConfig;
 
@@ -46,7 +49,7 @@ class OrchestratorTest {
         orchestratorConfig.setMaxParallelTasks(3);
         orchestrator = new Orchestrator(
                 taskRepository,
-                dependencyTracker, taskExecutionService, orchestratorConfig
+                dependencyTracker, taskExecutionService, orchestratorConfig, openCodeClient
         );
     }
 
@@ -112,6 +115,21 @@ class OrchestratorTest {
 
             boolean result = orchestrator.dispatchTask("t1");
             assertThat(result).isFalse();
+        }
+
+        @Test
+        void shouldCallKillAllOnStop() {
+            orchestrator.start();
+            orchestrator.stop();
+
+            verify(openCodeClient).killAll();
+        }
+
+        @Test
+        void shouldCallKillAllOnStopEvenWhenNotStarted() {
+            orchestrator.stop();
+
+            verify(openCodeClient, never()).killAll();
         }
     }
 
