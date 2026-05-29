@@ -9,17 +9,15 @@ import com.tddforge.orchestrator.Orchestrator;
 import com.tddforge.persistence.AgentRunEntity;
 import com.tddforge.persistence.AgentRunRepository;
 import com.tddforge.persistence.TaskEntity;
-import com.tddforge.persistence.TaskEventRepository;
 import com.tddforge.persistence.TaskRepository;
 import com.tddforge.web.dto.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -30,7 +28,6 @@ public class TaskWebService {
 
     private final TaskRepository taskRepository;
     private final AgentRunRepository agentRunRepository;
-    private final TaskEventRepository taskEventRepository;
     private final Orchestrator orchestrator;
     private final OpenCodeClient openCodeClient;
     private final WorktreeManager worktreeManager;
@@ -39,7 +36,6 @@ public class TaskWebService {
 
     public TaskWebService(TaskRepository taskRepository,
                           AgentRunRepository agentRunRepository,
-                          TaskEventRepository taskEventRepository,
                           Orchestrator orchestrator,
                           OpenCodeClient openCodeClient,
                           WorktreeManager worktreeManager,
@@ -47,7 +43,6 @@ public class TaskWebService {
                           RepoConfig repoConfig) {
         this.taskRepository = taskRepository;
         this.agentRunRepository = agentRunRepository;
-        this.taskEventRepository = taskEventRepository;
         this.orchestrator = orchestrator;
         this.openCodeClient = openCodeClient;
         this.worktreeManager = worktreeManager;
@@ -55,6 +50,7 @@ public class TaskWebService {
         this.repoConfig = repoConfig;
     }
 
+    @Transactional
     public TaskDetailResponse createTask(CreateTaskRequest request) {
         String id = generateTaskId();
         Task task = new Task(id, request.title(), request.description(), repoConfig.getPath());
@@ -112,6 +108,7 @@ public class TaskWebService {
         return OperationResponse.success(id, "Task dispatched successfully");
     }
 
+    @Transactional
     public OperationResponse cancelTask(String id) {
         TaskEntity entity = taskRepository.findById(id)
                 .orElseThrow(() -> new TaskNotFoundException(id));
@@ -132,6 +129,7 @@ public class TaskWebService {
         return OperationResponse.success(id, "Task cancelled successfully");
     }
 
+    @Transactional
     public OperationResponse reviseTask(String id, String feedback) {
         TaskEntity entity = taskRepository.findById(id)
                 .orElseThrow(() -> new TaskNotFoundException(id));
@@ -152,6 +150,7 @@ public class TaskWebService {
         return OperationResponse.success(id, "Task revised successfully");
     }
 
+    @Transactional
     public OperationResponse cleanTask(String id) {
         TaskEntity entity = taskRepository.findById(id)
                 .orElseThrow(() -> new TaskNotFoundException(id));
@@ -186,6 +185,7 @@ public class TaskWebService {
         return OperationResponse.success(id, "Task cleaned successfully");
     }
 
+    @Transactional
     public OperationResponse publishTask(String id) {
         TaskEntity entity = taskRepository.findById(id)
                 .orElseThrow(() -> new TaskNotFoundException(id));
@@ -210,7 +210,7 @@ public class TaskWebService {
         taskRepository.findById(id)
                 .orElseThrow(() -> new TaskNotFoundException(id));
 
-        return agentRunRepository.findByTaskId(id).stream()
+        return agentRunRepository.findByTaskIdOrderByCreatedAtDesc(id).stream()
                 .map(AgentRunEntity::toDomain)
                 .toList();
     }
@@ -234,9 +234,9 @@ public class TaskWebService {
 
     private TaskDetailResponse toDetailResponse(Task task, List<TaskSummary> children) {
         AgentRunSummary latestRun = null;
-        List<AgentRunEntity> runs = agentRunRepository.findByTaskId(task.getId());
+        List<AgentRunEntity> runs = agentRunRepository.findByTaskIdOrderByCreatedAtDesc(task.getId());
         if (!runs.isEmpty()) {
-            AgentRunEntity latest = runs.get(runs.size() - 1);
+            AgentRunEntity latest = runs.get(0);
             AgentRun domainRun = latest.toDomain();
             latestRun = new AgentRunSummary(
                     domainRun.id(),
