@@ -11,6 +11,8 @@ public interface AgentRunRepository extends JpaRepository<AgentRunEntity, String
 
     List<AgentRunEntity> findByTaskId(String taskId);
 
+    List<AgentRunEntity> findByTaskIdOrderByCreatedAtDesc(String taskId);
+
     List<AgentRunEntity> findByAgentType(String agentType);
 
     Optional<AgentRunEntity> findFirstByTaskIdAndAgentTypeOrderByCreatedAtDesc(String taskId, String agentType);
