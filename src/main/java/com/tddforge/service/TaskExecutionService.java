@@ -242,15 +242,15 @@ public class TaskExecutionService {
 
         saveAgentRun(result.agentRun());
 
-        if (result.agentRun().sessionId() != null && !result.agentRun().sessionId().isBlank()) {
-            task.addSessionId(result.agentRun().sessionId());
-            task.setUpdatedAt(Instant.now());
-            saveTask(task);
-        }
-
         Task reloadedAfterPlanner = reloadTask(task.getId());
         if (reloadedAfterPlanner.getStatus() == TaskStatus.CANCELLED) {
             return new ExecutionOutcome.Cancelled(reloadedAfterPlanner);
+        }
+
+        if (result.agentRun().sessionId() != null && !result.agentRun().sessionId().isBlank()) {
+            reloadedAfterPlanner.addSessionId(result.agentRun().sessionId());
+            reloadedAfterPlanner.setUpdatedAt(Instant.now());
+            saveTask(reloadedAfterPlanner);
         }
 
         if (result.extractionResult().hasCriticalError()) {

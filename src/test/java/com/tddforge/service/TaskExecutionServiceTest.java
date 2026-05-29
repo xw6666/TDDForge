@@ -1457,6 +1457,45 @@ class TaskExecutionServiceTest {
         }
 
         @Test
+        void shouldNotOverwriteCancelledWithSessionIdSaveInPlanning() {
+            Task task = createDefaultTask();
+            AtomicReference<TaskEntity> latestEntity = new AtomicReference<>(TaskEntity.fromDomain(task));
+            lenient().when(taskRepository.save(any(TaskEntity.class))).thenAnswer(invocation -> {
+                TaskEntity entity = invocation.getArgument(0);
+                latestEntity.set(entity);
+                return entity;
+            });
+            lenient().when(agentRunRepository.save(any(AgentRunEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            lenient().when(taskEventRepository.save(any(TaskEventEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            String plannerJson = "{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Simple\",\"plan\":\"Do the thing\"}";
+            AgentRun plannerRunWithSession = new AgentRun("run-p", "task-1", "planner", "test-model",
+                    null, null, "prompt", ndjsonWithText(plannerJson), 0, 100L, "planner-sess-123", 0, Instant.now());
+            ExtractionResult<PlannerResult> plannerExtract = realExtractor.extractPlannerResult(plannerRunWithSession);
+            when(plannerAgent.run(any())).thenReturn(new AgentResult<>(plannerRunWithSession, plannerExtract));
+
+            AtomicInteger findByIdCalls = new AtomicInteger(0);
+            when(taskRepository.findById("task-1")).thenAnswer(invocation -> {
+                TaskEntity entity = latestEntity.get();
+                int call = findByIdCalls.incrementAndGet();
+                if (call >= 2 && entity.getStatus() != TaskStatus.CANCELLED) {
+                    entity.setStatus(TaskStatus.CANCELLED);
+                }
+                return Optional.of(entity);
+            });
+
+            TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
+
+            assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.Cancelled.class);
+            TaskExecutionService.ExecutionOutcome.Cancelled cancelled = (TaskExecutionService.ExecutionOutcome.Cancelled) outcome;
+            assertThat(cancelled.task().getStatus()).isEqualTo(TaskStatus.CANCELLED);
+            verify(plannerAgent).run(any());
+            verify(testWriterAgent, never()).run(any());
+            verify(coderAgent, never()).run(any());
+            verify(reviewerAgent, never()).run(any());
+        }
+
+        @Test
         void shouldPreserveWorktreeAndAgentRunsWhenCancelled() {
             Task task = createDefaultTask();
             task.setStatus(TaskStatus.CANCELLED);
