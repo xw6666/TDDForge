@@ -53,6 +53,7 @@ class TaskExecutionServiceTest {
     private OpencodeConfig opencodeConfig;
     private OrchestratorConfig orchestratorConfig;
     private RepoConfig repoConfig;
+    private DependencyTracker dependencyTracker;
     private TaskExecutionService service;
 
     @BeforeEach
@@ -83,10 +84,12 @@ class TaskExecutionServiceTest {
         repoConfig.setBaseBranch("master");
         repoConfig.setWorktreeDir("/worktrees");
 
+        dependencyTracker = new DependencyTracker(taskRepository);
+
         service = new TaskExecutionService(
                 taskRepository, agentRunRepository, taskEventRepository,
                 plannerAgent, testWriterAgent, testReviewerAgent, coderAgent, reviewerAgent,
-                plannerService, worktreeManager,
+                plannerService, dependencyTracker, worktreeManager,
                 orchestratorConfig, opencodeConfig, repoConfig
         );
     }
