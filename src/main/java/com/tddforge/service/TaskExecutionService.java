@@ -758,11 +758,10 @@ private ExecutionOutcome runTestWriting(Task task) {
     }
 
     private String getLatestCoderSessionId(Task task) {
-        List<String> sessionIds = task.getSessionIds();
-        if (sessionIds != null && !sessionIds.isEmpty()) {
-            return sessionIds.get(sessionIds.size() - 1);
-        }
-        return null;
+        return agentRunRepository.findFirstByTaskIdAndAgentTypeOrderByCreatedAtDesc(task.getId(), "coder")
+                .map(AgentRunEntity::getSessionId)
+                .filter(s -> s != null && !s.isBlank())
+                .orElse(null);
     }
 
     private String buildPriorRejections(Task task) {

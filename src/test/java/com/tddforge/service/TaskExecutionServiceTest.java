@@ -553,6 +553,9 @@ class TaskExecutionServiceTest {
                     new ReviewerResult("reviewer-1", ReviewVerdict.REQUEST_CHANGES, "Implementation has bugs.", "implementation_issue"), "");
             when(reviewerAgent.run(any())).thenReturn(new AgentResult<>(reviewerRun, reviewerExtract));
 
+            when(agentRunRepository.findFirstByTaskIdAndAgentTypeOrderByCreatedAtDesc("task-1", "coder"))
+                    .thenReturn(Optional.of(AgentRunEntity.fromDomain(coderRun)));
+
             TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
 
             assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.NeedsArbitration.class);
@@ -661,6 +664,9 @@ class TaskExecutionServiceTest {
                     new ReviewerResult("reviewer-1", ReviewVerdict.REQUEST_CHANGES, "Has bugs.", "implementation_issue"), "");
             when(reviewerAgent.run(any())).thenReturn(new AgentResult<>(reviewer1Run, reviewer1Extract));
 
+            when(agentRunRepository.findFirstByTaskIdAndAgentTypeOrderByCreatedAtDesc("task-1", "coder"))
+                    .thenReturn(Optional.of(AgentRunEntity.fromDomain(coderRun)));
+
             TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
 
             assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.NeedsArbitration.class);
@@ -722,6 +728,9 @@ class TaskExecutionServiceTest {
                     .thenReturn(new AgentResult<>(reviewerRejectRun, reviewerRejectExtract))
                     .thenReturn(new AgentResult<>(reviewerApproveRun, reviewerApproveExtract));
 
+            when(agentRunRepository.findFirstByTaskIdAndAgentTypeOrderByCreatedAtDesc("task-1", "coder"))
+                    .thenReturn(Optional.of(AgentRunEntity.fromDomain(coderRun1)));
+
             TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
 
             assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.Success.class);
@@ -730,6 +739,78 @@ class TaskExecutionServiceTest {
             assertThat(success.task().getCodeRetryCount()).isEqualTo(1);
             verify(reviewerAgent, times(2)).run(any());
             verify(coderAgent, times(2)).run(any());
+        }
+
+        @Test
+        void shouldUseCoderSessionEvenWhenReviewerSessionAppendedAfter() {
+            Task task = createDefaultTask();
+            setupTaskSaveWithReload(task);
+
+            String plannerJson = "{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Simple\",\"plan\":\"Do the thing\"}";
+            AgentRun plannerRun = createAgentRun(ndjsonWithText(plannerJson), 0);
+            ExtractionResult<PlannerResult> plannerExtract = realExtractor.extractPlannerResult(plannerRun);
+            when(plannerAgent.run(any())).thenReturn(new AgentResult<>(plannerRun, plannerExtract));
+            when(worktreeManager.generateBranchName(any(), any())).thenReturn("task-1/test-task");
+            when(worktreeManager.createWorktree(any(), any())).thenReturn(Path.of("/worktrees/task-1"));
+
+            AgentRun twRun = createAgentRun(ndjsonWithText("TestWriter EXPECTED_RED"), 0);
+            ExtractionResult<TestWriterResult> twExtract = ExtractionResult.success(
+                    new TestWriterResult("Test summary", "mvn test", "EXPECTED_RED", "abc123", List.of()), "");
+            when(testWriterAgent.run(any())).thenReturn(new AgentResult<>(twRun, twExtract));
+
+            AgentRun trRun = createAgentRun(ndjsonWithText("APPROVE\nGood tests."), 0);
+            ExtractionResult<TestReviewerResult> trExtract = ExtractionResult.success(
+                    new TestReviewerResult(ReviewVerdict.APPROVE, "Good tests."), "");
+            when(testReviewerAgent.run(any())).thenReturn(new AgentResult<>(trRun, trExtract));
+
+            Instant coderTime = Instant.now().minusSeconds(60);
+            AgentRun coderRun1 = new AgentRun("run-coder-1", "task-1", "coder", "test-model",
+                    null, null, "prompt", "First attempt", 0, 100L, "coder-session-xyz", 0, coderTime);
+            ExtractionResult<CoderResult> coderExtract1 = ExtractionResult.success(
+                    new CoderResult("First attempt", "mvn test", "pass", "def456", List.of()), "");
+
+            AgentRun coderRun2 = new AgentRun("run-coder-2", "task-1", "coder", "test-model",
+                    null, null, "prompt", "Second attempt", 0, 100L, "coder-session-xyz", 0, Instant.now());
+            ExtractionResult<CoderResult> coderExtract2 = ExtractionResult.success(
+                    new CoderResult("Second attempt", "mvn test", "pass", "ghi789", List.of()), "");
+
+            when(coderAgent.run(any()))
+                    .thenReturn(new AgentResult<>(coderRun1, coderExtract1))
+                    .thenReturn(new AgentResult<>(coderRun2, coderExtract2));
+
+            Instant reviewerTime = Instant.now().minusSeconds(30);
+            AgentRun reviewerRejectRun = new AgentRun("run-rev-1", "task-1", "reviewer", "test-model",
+                    null, null, "prompt", ndjsonWithText("REQUEST_CHANGES\nBugs found."), 0, 100L, "reviewer-session-999", 0, reviewerTime);
+            ExtractionResult<ReviewerResult> reviewerRejectExtract = ExtractionResult.success(
+                    new ReviewerResult("reviewer-1", ReviewVerdict.REQUEST_CHANGES, "Bugs found.", "implementation_issue"), "");
+            AgentRun reviewerApproveRun = new AgentRun("run-rev-2", "task-1", "reviewer", "test-model",
+                    null, null, "prompt", ndjsonWithText("APPROVE\nFixed."), 0, 100L, "reviewer-session-999", 0, Instant.now());
+            ExtractionResult<ReviewerResult> reviewerApproveExtract = ExtractionResult.success(
+                    new ReviewerResult("reviewer-1", ReviewVerdict.APPROVE, "Fixed.", null), "");
+            when(reviewerAgent.run(any()))
+                    .thenReturn(new AgentResult<>(reviewerRejectRun, reviewerRejectExtract))
+                    .thenReturn(new AgentResult<>(reviewerApproveRun, reviewerApproveExtract));
+
+            when(agentRunRepository.findFirstByTaskIdAndAgentTypeOrderByCreatedAtDesc("task-1", "coder"))
+                    .thenReturn(java.util.Optional.of(AgentRunEntity.fromDomain(coderRun1)));
+
+            AtomicReference<AgentContext> capturedCoderRetryContext = new AtomicReference<>();
+            when(coderAgent.run(any())).thenAnswer(invocation -> {
+                AgentContext ctx = invocation.getArgument(0);
+                if (ctx.sessionId() != null) {
+                    capturedCoderRetryContext.set(ctx);
+                }
+                if (capturedCoderRetryContext.get() == null) {
+                    return new AgentResult<>(coderRun1, coderExtract1);
+                }
+                return new AgentResult<>(coderRun2, coderExtract2);
+            });
+
+            TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
+
+            assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.Success.class);
+            assertThat(capturedCoderRetryContext.get()).isNotNull();
+            assertThat(capturedCoderRetryContext.get().sessionId()).isEqualTo("coder-session-xyz");
         }
 
         @Test
@@ -829,6 +910,9 @@ class TaskExecutionServiceTest {
             ExtractionResult<ReviewerResult> reviewerExtract = ExtractionResult.success(
                     new ReviewerResult("reviewer-1", ReviewVerdict.REQUEST_CHANGES, "Has bugs.", "implementation_issue"), "");
             when(reviewerAgent.run(any())).thenReturn(new AgentResult<>(reviewerRun, reviewerExtract));
+
+            when(agentRunRepository.findFirstByTaskIdAndAgentTypeOrderByCreatedAtDesc("task-1", "coder"))
+                    .thenReturn(Optional.of(AgentRunEntity.fromDomain(coderRun)));
 
             TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
 
