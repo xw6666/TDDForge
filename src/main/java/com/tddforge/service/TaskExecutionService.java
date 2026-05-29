@@ -142,10 +142,7 @@ public class TaskExecutionService {
                     outcome = runCoding(task);
                     if (outcome instanceof ExecutionOutcome.Failed || outcome instanceof ExecutionOutcome.Cancelled || outcome instanceof ExecutionOutcome.NeedsArbitration) return outcome;
                     task = reloadTask(taskId);
-                    if (task.getStatus() == TaskStatus.REVIEW_FAILED) {
-                        continue;
-                    }
-                    if (task.getStatus() == TaskStatus.REVIEWING) {
+                    if (task.getStatus() == TaskStatus.REVIEW_FAILED || task.getStatus() == TaskStatus.REVIEWING) {
                         continue;
                     }
                 }
@@ -476,6 +473,18 @@ private ExecutionOutcome runTestWriting(Task task) {
             return new ExecutionOutcome.Cancelled(task);
         }
 
+        boolean isRetry = task.getStatus() == TaskStatus.REVIEW_FAILED || task.getCodeRetryCount() > 0;
+        String reviewFeedback = null;
+        Integer attempt = null;
+
+        if (isRetry) {
+            attempt = task.getCodeRetryCount() + 1;
+            reviewFeedback = getLatestReviewFeedback(task);
+            if (reviewFeedback == null || reviewFeedback.isBlank()) {
+                reviewFeedback = task.getError() != null ? task.getError() : "Previous coder attempt failed.";
+            }
+        }
+
         task = moveToStatus(task, TaskStatus.CODING);
 
         String worktreePath = task.getWorktreePath();
@@ -491,6 +500,11 @@ private ExecutionOutcome runTestWriting(Task task) {
 
         ModelSpec modelSpec = getCoderModelSpec(task);
         String coderSessionId = getLatestCoderSessionId(task);
+
+        if (isRetry && coderSessionId == null) {
+            recordEvent(task, "CODER_SESSION_MISSING", "No coder session found for retry; opencode will create a new session.");
+        }
+
         long timeout = opencodeConfig.getTimeoutSeconds();
         AgentContext context = new AgentContext(
                 task.getId(), Path.of(worktreePath), coderSessionId, modelSpec,
@@ -498,7 +512,7 @@ private ExecutionOutcome runTestWriting(Task task) {
                 task.isForceNoSplit(), task.getPlanOutput(), task.getTestOutput(),
                 task.getTestReviewOutput(), null, task.getCodeOutput(),
                 task.getReviewOutput() != null ? task.getReviewOutput() : null,
-                null, null, null, null, null, null
+                null, null, null, null, reviewFeedback, attempt
         );
 
         AgentResult<CoderResult> result;
@@ -516,6 +530,8 @@ private ExecutionOutcome runTestWriting(Task task) {
                 recordEvent(task, "NEEDS_ARBITRATION", error);
                 return new ExecutionOutcome.NeedsArbitration(task, "Max code retries exceeded");
             }
+            task.setError(error);
+            task.setStatus(TaskStatus.CODING);
             task.setUpdatedAt(Instant.now());
             saveTask(task);
             recordEvent(task, "CODER_FAILED", error + " (retry " + task.getCodeRetryCount() + "/" + maxCodeRetries + ")");
@@ -537,6 +553,8 @@ private ExecutionOutcome runTestWriting(Task task) {
                 recordEvent(task, "NEEDS_ARBITRATION", "Max code retries exceeded");
                 return new ExecutionOutcome.NeedsArbitration(task, "Max code retries exceeded");
             }
+            task.setError("Coder exited with code: " + result.agentRun().exitCode());
+            task.setStatus(TaskStatus.CODING);
             task.setUpdatedAt(Instant.now());
             saveTask(task);
             recordEvent(task, "CODER_FAILED", "Coder exited with code: " + result.agentRun().exitCode());
@@ -553,6 +571,8 @@ private ExecutionOutcome runTestWriting(Task task) {
                 recordEvent(task, "NEEDS_ARBITRATION", "Max code retries exceeded");
                 return new ExecutionOutcome.NeedsArbitration(task, "Max code retries exceeded");
             }
+            task.setError("Coder extraction failed: " + result.extractionResult().criticalError());
+            task.setStatus(TaskStatus.CODING);
             task.setUpdatedAt(Instant.now());
             saveTask(task);
             recordEvent(task, "CODER_FAILED", "Coder extraction failed: " + result.extractionResult().criticalError());
@@ -578,71 +598,91 @@ private ExecutionOutcome runTestWriting(Task task) {
         task = moveToStatus(task, TaskStatus.REVIEWING);
 
         String worktreePath = task.getWorktreePath();
-        ModelSpec modelSpec = getReviewerModelSpec();
+        List<com.tddforge.config.ModelSpec> reviewerSpecs = getReviewerModelSpecList();
         String priorRejections = buildPriorRejections(task);
         long timeout = opencodeConfig.getTimeoutSeconds();
-        AgentContext context = new AgentContext(
-                task.getId(), Path.of(worktreePath), null, modelSpec,
-                task.getTitle(), task.getDescription(), task.getRepoPath(), timeout,
-                task.isForceNoSplit(), task.getPlanOutput(), task.getTestOutput(),
-                task.getTestReviewOutput(), null, task.getCodeOutput(),
-                priorRejections, null, null, null, "reviewer-1", null, null
-        );
 
-        AgentResult<ReviewerResult> result;
-        try {
-            result = reviewerAgent.run(context);
-        } catch (Exception e) {
-            String error = "Reviewer execution exception: " + e.getMessage();
-            log.error(error, e);
-            task.setError(error);
-            task.setStatus(TaskStatus.FAILED);
-            task.setUpdatedAt(Instant.now());
-            saveTask(task);
-            recordEvent(task, "REVIEW_FAILED", error);
-            return new ExecutionOutcome.Failed(task, error);
-        }
+        boolean anyRejected = false;
+        ReviewerResult firstRejection = null;
 
-        saveAgentRun(result.agentRun());
-        if (result.agentRun().sessionId() != null && !result.agentRun().sessionId().isBlank()) {
-            task.addSessionId(result.agentRun().sessionId());
-        }
+        for (int i = 0; i < reviewerSpecs.size(); i++) {
+            ModelSpec modelSpec = toDomainModelSpec(reviewerSpecs.get(i));
+            String reviewerId = "reviewer-" + (i + 1);
 
-        if (result.extractionResult().hasCriticalError()) {
-            String error = result.extractionResult().criticalError();
-            task.setCodeRetryCount(task.getCodeRetryCount() + 1);
-            if (task.getCodeRetryCount() > maxCodeRetries) {
-                task.setStatus(TaskStatus.NEEDS_ARBITRATION);
-                task.setError("Max code retries exceeded after Reviewer extraction failure");
+            AgentContext context = new AgentContext(
+                    task.getId(), Path.of(worktreePath), null, modelSpec,
+                    task.getTitle(), task.getDescription(), task.getRepoPath(), timeout,
+                    task.isForceNoSplit(), task.getPlanOutput(), task.getTestOutput(),
+                    task.getTestReviewOutput(), null, task.getCodeOutput(),
+                    priorRejections, null, null, null, reviewerId, null, null
+            );
+
+            AgentResult<ReviewerResult> result;
+            try {
+                result = reviewerAgent.run(context);
+            } catch (Exception e) {
+                String error = "Reviewer " + reviewerId + " execution exception: " + e.getMessage();
+                log.error(error, e);
+                task.setError(error);
+                task.setStatus(TaskStatus.FAILED);
                 task.setUpdatedAt(Instant.now());
                 saveTask(task);
-                recordEvent(task, "NEEDS_ARBITRATION", error);
-                return new ExecutionOutcome.NeedsArbitration(task, "Max code retries exceeded");
+                recordEvent(task, "REVIEW_FAILED", error);
+                return new ExecutionOutcome.Failed(task, error);
             }
-            task.setStatus(TaskStatus.REVIEW_FAILED);
+
+            saveAgentRun(result.agentRun());
+            if (result.agentRun().sessionId() != null && !result.agentRun().sessionId().isBlank()) {
+                task.addSessionId(result.agentRun().sessionId());
+            }
+
+            if (result.extractionResult().hasCriticalError()) {
+                String error = result.extractionResult().criticalError();
+                task.setCodeRetryCount(task.getCodeRetryCount() + 1);
+                if (task.getCodeRetryCount() > maxCodeRetries) {
+                    task.setStatus(TaskStatus.NEEDS_ARBITRATION);
+                    task.setError("Max code retries exceeded after Reviewer " + reviewerId + " extraction failure");
+                    task.setUpdatedAt(Instant.now());
+                    saveTask(task);
+                    recordEvent(task, "NEEDS_ARBITRATION", error);
+                    return new ExecutionOutcome.NeedsArbitration(task, "Max code retries exceeded");
+                }
+                task.setStatus(TaskStatus.REVIEW_FAILED);
+                task.setUpdatedAt(Instant.now());
+                saveTask(task);
+                recordEvent(task, "REVIEW_FAILED", "Reviewer " + reviewerId + " extraction failed: " + error);
+                return new ExecutionOutcome.Success(task);
+            }
+
+            ReviewerResult reviewerResult = result.extractionResult().result();
+            task.addReviewerResult(reviewerResult);
+            task.setReviewOutput(reviewerResult.feedback());
             task.setUpdatedAt(Instant.now());
             saveTask(task);
-            recordEvent(task, "REVIEW_FAILED", "Reviewer extraction failed: " + error);
-            return new ExecutionOutcome.Success(task);
+
+            if (reviewerResult.verdict() == ReviewVerdict.REQUEST_CHANGES) {
+                anyRejected = true;
+                firstRejection = reviewerResult;
+                recordEvent(task, "REVIEW_REJECTED",
+                        "Reviewer " + reviewerId + " requested changes, category: " + reviewerResult.category()
+                                + ", feedback: " + truncate(reviewerResult.feedback(), 200));
+                break;
+            }
+
+            recordEvent(task, "REVIEW_APPROVED", "Reviewer " + reviewerId + " approved");
         }
 
-        ReviewerResult reviewerResult = result.extractionResult().result();
-        task.addReviewerResult(reviewerResult);
-        task.setReviewOutput(reviewerResult.feedback());
-        task.setUpdatedAt(Instant.now());
-
-        if (reviewerResult.verdict() == ReviewVerdict.APPROVE) {
+        if (!anyRejected) {
             task.setReviewPass(true);
             task.setStatus(TaskStatus.COMPLETED);
             task.setCompletedAt(Instant.now());
             task.setUpdatedAt(Instant.now());
             saveTask(task);
-            recordEvent(task, "COMPLETED", "Reviewer approved, task completed");
+            recordEvent(task, "COMPLETED", "All reviewers approved, task completed");
             return new ExecutionOutcome.Success(task);
         }
 
-        String category = reviewerResult.category();
-        recordEvent(task, "REVIEW_REJECTED", "Reviewer requested changes, category: " + category + ", feedback: " + truncate(reviewerResult.feedback(), 200));
+        String category = firstRejection.category();
 
         if ("test_issue".equals(category)) {
             task.setTestRetryCount(task.getTestRetryCount() + 1);
@@ -675,7 +715,7 @@ private ExecutionOutcome runTestWriting(Task task) {
         task.setStatus(TaskStatus.REVIEW_FAILED);
         task.setUpdatedAt(Instant.now());
         saveTask(task);
-        recordEvent(task, "REVIEW_FAILED", "Reviewer requested changes (implementation_issue)");
+        recordEvent(task, "REVIEW_FAILED", "Reviewer requested changes (implementation_issue), routing back to Coder");
         return new ExecutionOutcome.Success(task);
     }
 
@@ -690,12 +730,23 @@ private ExecutionOutcome runTestWriting(Task task) {
         return toDomainModelSpec(opencodeConfig.getCoderDefault());
     }
 
-    private ModelSpec getReviewerModelSpec() {
+    private List<com.tddforge.config.ModelSpec> getReviewerModelSpecList() {
         List<com.tddforge.config.ModelSpec> reviewers = opencodeConfig.getReviewers();
         if (reviewers != null && !reviewers.isEmpty()) {
-            return toDomainModelSpec(reviewers.get(0));
+            return reviewers;
         }
-        return toDomainModelSpec(opencodeConfig.getCoderDefault());
+        return List.of(opencodeConfig.getCoderDefault());
+    }
+
+    private String getLatestReviewFeedback(Task task) {
+        if (task.getReviewerResults() != null && !task.getReviewerResults().isEmpty()) {
+            ReviewerResult latest = task.getReviewerResults().get(task.getReviewerResults().size() - 1);
+            return "Reviewer " + latest.reviewerId() + " " + latest.verdict() + ":\n" + latest.feedback();
+        }
+        if (task.getReviewOutput() != null && !task.getReviewOutput().isBlank()) {
+            return task.getReviewOutput();
+        }
+        return null;
     }
 
     private ModelSpec toDomainModelSpec(com.tddforge.config.ModelSpec configSpec) {
@@ -707,11 +758,10 @@ private ExecutionOutcome runTestWriting(Task task) {
     }
 
     private String getLatestCoderSessionId(Task task) {
-        List<String> sessionIds = task.getSessionIds();
-        if (sessionIds != null && !sessionIds.isEmpty()) {
-            return sessionIds.get(sessionIds.size() - 1);
-        }
-        return null;
+        return agentRunRepository.findFirstByTaskIdAndAgentTypeOrderByCreatedAtDesc(task.getId(), "coder")
+                .map(AgentRunEntity::getSessionId)
+                .filter(s -> s != null && !s.isBlank())
+                .orElse(null);
     }
 
     private String buildPriorRejections(Task task) {
