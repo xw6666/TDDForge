@@ -538,7 +538,7 @@ public class TaskExecutionService {
             return new ExecutionOutcome.Success(task);
         }
 
-CoderResult coderResult = result.extractionResult().result();
+        CoderResult coderResult = result.extractionResult().result();
         task.setCodeOutput(result.agentRun().output());
         task.setStatus(TaskStatus.REVIEWING);
         task.setUpdatedAt(Instant.now());
