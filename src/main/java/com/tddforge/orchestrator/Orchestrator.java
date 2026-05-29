@@ -4,15 +4,12 @@ import com.tddforge.config.OrchestratorConfig;
 import com.tddforge.domain.Task;
 import com.tddforge.domain.TaskStatus;
 import com.tddforge.persistence.TaskEntity;
-import com.tddforge.persistence.TaskEventEntity;
-import com.tddforge.persistence.TaskEventRepository;
 import com.tddforge.persistence.TaskRepository;
 import com.tddforge.service.DependencyTracker;
 import com.tddforge.service.TaskExecutionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -21,7 +18,6 @@ public class Orchestrator {
     private static final Logger log = LoggerFactory.getLogger(Orchestrator.class);
 
     private final TaskRepository taskRepository;
-    private final TaskEventRepository taskEventRepository;
     private final DependencyTracker dependencyTracker;
     private final TaskExecutionService taskExecutionService;
     private final OrchestratorConfig orchestratorConfig;
@@ -34,12 +30,10 @@ public class Orchestrator {
     private volatile boolean started = false;
 
     public Orchestrator(TaskRepository taskRepository,
-                        TaskEventRepository taskEventRepository,
                         DependencyTracker dependencyTracker,
                         TaskExecutionService taskExecutionService,
                         OrchestratorConfig orchestratorConfig) {
         this.taskRepository = taskRepository;
-        this.taskEventRepository = taskEventRepository;
         this.dependencyTracker = dependencyTracker;
         this.taskExecutionService = taskExecutionService;
         this.orchestratorConfig = orchestratorConfig;
@@ -146,6 +140,11 @@ public class Orchestrator {
         Runnable taskWrapper = createTaskWrapper(taskId);
         Future<?> future = executorService.submit(taskWrapper);
         runningTasks.put(taskId, future);
+        if (future.isDone()) {
+            runningTasks.remove(taskId);
+            dispatchedOrPending.remove(taskId);
+            refreshPendingQueue();
+        }
         log.info("Task {} submitted for execution, running={}", taskId, runningTasks.size());
     }
 

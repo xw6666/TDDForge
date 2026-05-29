@@ -3,7 +3,6 @@ package com.tddforge.orchestrator;
 import com.tddforge.config.OrchestratorConfig;
 import com.tddforge.domain.*;
 import com.tddforge.persistence.TaskEntity;
-import com.tddforge.persistence.TaskEventRepository;
 import com.tddforge.persistence.TaskRepository;
 import com.tddforge.service.DependencyTracker;
 import com.tddforge.service.TaskExecutionService;
@@ -33,8 +32,6 @@ class OrchestratorTest {
     @Mock
     private TaskRepository taskRepository;
     @Mock
-    private TaskEventRepository taskEventRepository;
-    @Mock
     private DependencyTracker dependencyTracker;
     @Mock
     private TaskExecutionService taskExecutionService;
@@ -48,7 +45,7 @@ class OrchestratorTest {
         orchestratorConfig = new OrchestratorConfig();
         orchestratorConfig.setMaxParallelTasks(3);
         orchestrator = new Orchestrator(
-                taskRepository, taskEventRepository,
+                taskRepository,
                 dependencyTracker, taskExecutionService, orchestratorConfig
         );
     }
@@ -98,7 +95,6 @@ class OrchestratorTest {
         void shouldNotDispatchWhenNotStarted() {
             TaskEntity task = createPendingTaskEntity("t1");
             when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
-            when(taskEventRepository.save(any())).thenReturn(null);
             when(dependencyTracker.isBlockedByDependencies("t1")).thenReturn(false);
 
             boolean result = orchestrator.dispatchTask("t1");
@@ -239,14 +235,8 @@ class OrchestratorTest {
             CountDownLatch allowFirstCompletion = new CountDownLatch(1);
             AtomicInteger secondExecutions = new AtomicInteger(0);
 
-            when(taskRepository.findById(any())).thenAnswer(invocation -> {
-                String id = invocation.getArgument(0);
-                TaskEntity entity = createPendingTaskEntity(id);
-                if (id.equals("t2-completed")) {
-                    entity.setStatus(TaskStatus.COMPLETED);
-                }
-                return Optional.of(entity);
-            });
+            when(taskRepository.findById(any())).thenAnswer(invocation ->
+                    Optional.of(createPendingTaskEntity(invocation.getArgument(0))));
             when(dependencyTracker.isBlockedByDependencies(any())).thenReturn(false);
             when(taskExecutionService.executeTask(any())).thenAnswer(invocation -> {
                 String id = invocation.getArgument(0);
@@ -319,7 +309,7 @@ class OrchestratorTest {
             orchestrator.stop();
         }
 
-@Test
+        @Test
         void shouldNotDispatchPendingTaskThatBecomesBlocked() throws Exception {
             orchestratorConfig.setMaxParallelTasks(1);
             orchestrator.start();
