@@ -2,6 +2,8 @@ server:
   port: 3550
 
 spring:
+  config:
+    import: optional:file:/etc/opengiraffe-java/config.yaml
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration

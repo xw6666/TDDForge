@@ -1,0 +1,77 @@
+# =============================================================================
+# OpenGiraffe Java Daemon — Configuration Template
+# Default location: /etc/opengiraffe-java/config.yaml
+# =============================================================================
+# This file is loaded automatically at startup via spring.config.import.
+# All values shown are defaults; override only what you need.
+# =============================================================================
+
+# --- HTTP Server (Spring Boot standard properties) ---------------------------
+server:
+  address: 0.0.0.0
+  port: 8778
+
+# --- Target Repository -------------------------------------------------------
+repo:
+  path: /data/repos/target-project
+  base_branch: master
+  worktree_dir: /data/opengiraffe/worktrees
+  worktree_hooks: []
+
+# --- opencode CLI Configuration ----------------------------------------------
+opencode:
+  config_path: /etc/opengiraffe-java/opencode.json
+  timeout_seconds: 3600
+  max_continues: 8
+
+  # --- Agent model assignments ---
+  planner:
+    model: opencode/qwen3.6-plus-free
+    variant: ""
+    agent: ""
+  test_writer:
+    model: opencode/qwen3.6-plus-free
+    variant: ""
+    agent: ""
+  test_reviewer:
+    model: opencode/qwen3.6-plus-free
+    variant: ""
+    agent: ""
+  coder_default:
+    model: opencode/qwen3.6-plus-free
+    variant: ""
+    agent: ""
+  coder_by_complexity:
+    very_complex:
+      model: opencode/qwen3.6-plus-free
+    complex:
+      model: opencode/qwen3.6-plus-free
+    medium:
+      model: opencode/qwen3.6-plus-free
+    simple:
+      model: opencode/qwen3.6-plus-free
+  reviewers:
+    - model: opencode/qwen3.6-plus-free
+      variant: ""
+      agent: ""
+
+# --- Orchestrator ------------------------------------------------------------
+orchestrator:
+  max_parallel_tasks: 3
+  max_test_retries: 2
+  max_code_retries: 4
+  poll_interval_seconds: 30
+
+# --- MySQL (required for persistence) ----------------------------------------
+mysql:
+  url: jdbc:mysql://127.0.0.1:3306/opengiraffe_java?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+  username: opengiraffe
+  password: change-me
+
+# --- Publish ----------------------------------------------------------------
+publish:
+  remote: origin
+
+# --- Logging (Spring Boot standard properties) --------------------------------
+logging:
+  level: INFO
