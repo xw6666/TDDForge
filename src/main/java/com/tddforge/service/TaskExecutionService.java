@@ -39,6 +39,7 @@ public class TaskExecutionService {
     private final CoderAgent coderAgent;
     private final ReviewerAgent reviewerAgent;
     private final PlannerService plannerService;
+    private final DependencyTracker dependencyTracker;
     private final WorktreeManager worktreeManager;
     private final OrchestratorConfig orchestratorConfig;
     private final OpencodeConfig opencodeConfig;
@@ -53,6 +54,7 @@ public class TaskExecutionService {
                                 CoderAgent coderAgent,
                                 ReviewerAgent reviewerAgent,
                                 PlannerService plannerService,
+                                DependencyTracker dependencyTracker,
                                 WorktreeManager worktreeManager,
                                 OrchestratorConfig orchestratorConfig,
                                 OpencodeConfig opencodeConfig,
@@ -66,6 +68,7 @@ public class TaskExecutionService {
         this.coderAgent = coderAgent;
         this.reviewerAgent = reviewerAgent;
         this.plannerService = plannerService;
+        this.dependencyTracker = dependencyTracker;
         this.worktreeManager = worktreeManager;
         this.orchestratorConfig = orchestratorConfig;
         this.opencodeConfig = opencodeConfig;
@@ -89,6 +92,19 @@ public class TaskExecutionService {
             return new ExecutionOutcome.Cancelled(task);
         }
 
+        if (dependencyTracker.isBlockedByDependencies(taskId)) {
+            List<DependencyTracker.BlockReason> blockReasons = dependencyTracker.getBlockingReasons(taskId);
+            String reason = blockReasons.stream()
+                    .map(DependencyTracker.BlockReason::reason)
+                    .reduce((a, b) -> a + "; " + b)
+                    .orElse("Blocked by unmet dependencies");
+            task.setError(reason);
+            task.setUpdatedAt(Instant.now());
+            saveTask(task);
+            recordEvent(task, "DEPENDENCY_BLOCKED", reason);
+            return new ExecutionOutcome.Failed(task, reason);
+        }
+
         task.setStatus(TaskStatus.PLANNING);
         task.setStartedAt(Instant.now());
         task.setUpdatedAt(Instant.now());
@@ -97,9 +113,15 @@ public class TaskExecutionService {
 
         ExecutionOutcome outcome = runPlanning(task);
         if (outcome instanceof ExecutionOutcome.Cancelled) return outcome;
-        if (outcome instanceof ExecutionOutcome.Failed) return outcome;
+        if (outcome instanceof ExecutionOutcome.Failed) {
+            handleParentAggregationOnFailure(reloadTask(taskId));
+            return outcome;
+        }
         if (outcome instanceof ExecutionOutcome.SplitParentWaiting) return outcome;
-        if (outcome instanceof ExecutionOutcome.NeedsArbitration) return outcome;
+        if (outcome instanceof ExecutionOutcome.NeedsArbitration) {
+            handleParentAggregationOnFailure(reloadTask(taskId));
+            return outcome;
+        }
 
         task = reloadTask(taskId);
         if (task.getStatus() == TaskStatus.CANCELLED) {
@@ -110,12 +132,15 @@ public class TaskExecutionService {
 
         while (true) {
             if (task.getStatus() == TaskStatus.CANCELLED) {
+                handleParentAggregationOnFailure(task);
                 return new ExecutionOutcome.Cancelled(task);
             }
             if (task.getStatus() == TaskStatus.NEEDS_ARBITRATION) {
+                handleParentAggregationOnFailure(task);
                 return new ExecutionOutcome.NeedsArbitration(task, task.getError());
             }
             if (task.getStatus() == TaskStatus.FAILED) {
+                handleParentAggregationOnFailure(task);
                 return new ExecutionOutcome.Failed(task, task.getError());
             }
             if (task.getStatus() == TaskStatus.COMPLETED) {
@@ -125,7 +150,15 @@ public class TaskExecutionService {
             switch (task.getStatus()) {
                 case TEST_WRITING, TEST_WRITE_FAILED, TEST_REVIEW_FAILED -> {
                     outcome = runTestWriting(task);
-                    if (outcome instanceof ExecutionOutcome.Failed || outcome instanceof ExecutionOutcome.Cancelled || outcome instanceof ExecutionOutcome.NeedsArbitration) return outcome;
+                    if (outcome instanceof ExecutionOutcome.Failed || outcome instanceof ExecutionOutcome.Cancelled || outcome instanceof ExecutionOutcome.NeedsArbitration) {
+                        if (outcome instanceof ExecutionOutcome.Failed || outcome instanceof ExecutionOutcome.NeedsArbitration) {
+                            handleParentAggregationOnFailure(reloadTask(taskId));
+                        }
+                        if (outcome instanceof ExecutionOutcome.Cancelled) {
+                            handleParentAggregationOnFailure(reloadTask(taskId));
+                        }
+                        return outcome;
+                    }
                     task = reloadTask(taskId);
                     if (task.getStatus() == TaskStatus.TEST_WRITE_FAILED || task.getStatus() == TaskStatus.TEST_REVIEW_FAILED) {
                         continue;
@@ -136,7 +169,12 @@ public class TaskExecutionService {
                 }
                 case TEST_REVIEWING -> {
                     outcome = runTestReviewing(task);
-                    if (outcome instanceof ExecutionOutcome.Failed || outcome instanceof ExecutionOutcome.Cancelled || outcome instanceof ExecutionOutcome.NeedsArbitration) return outcome;
+                    if (outcome instanceof ExecutionOutcome.Failed || outcome instanceof ExecutionOutcome.Cancelled || outcome instanceof ExecutionOutcome.NeedsArbitration) {
+                        if (outcome instanceof ExecutionOutcome.Failed || outcome instanceof ExecutionOutcome.NeedsArbitration || outcome instanceof ExecutionOutcome.Cancelled) {
+                            handleParentAggregationOnFailure(reloadTask(taskId));
+                        }
+                        return outcome;
+                    }
                     task = reloadTask(taskId);
                     if (task.getStatus() == TaskStatus.TEST_REVIEW_FAILED) {
                         continue;
@@ -147,7 +185,12 @@ public class TaskExecutionService {
                 }
                 case CODING, REVIEW_FAILED -> {
                     outcome = runCoding(task);
-                    if (outcome instanceof ExecutionOutcome.Failed || outcome instanceof ExecutionOutcome.Cancelled || outcome instanceof ExecutionOutcome.NeedsArbitration) return outcome;
+                    if (outcome instanceof ExecutionOutcome.Failed || outcome instanceof ExecutionOutcome.Cancelled || outcome instanceof ExecutionOutcome.NeedsArbitration) {
+                        if (outcome instanceof ExecutionOutcome.Failed || outcome instanceof ExecutionOutcome.NeedsArbitration || outcome instanceof ExecutionOutcome.Cancelled) {
+                            handleParentAggregationOnFailure(reloadTask(taskId));
+                        }
+                        return outcome;
+                    }
                     task = reloadTask(taskId);
                     if (task.getStatus() == TaskStatus.REVIEW_FAILED || task.getStatus() == TaskStatus.REVIEWING) {
                         continue;
@@ -155,7 +198,12 @@ public class TaskExecutionService {
                 }
                 case REVIEWING -> {
                     outcome = runReviewing(task);
-                    if (outcome instanceof ExecutionOutcome.Failed || outcome instanceof ExecutionOutcome.Cancelled || outcome instanceof ExecutionOutcome.NeedsArbitration) return outcome;
+                    if (outcome instanceof ExecutionOutcome.Failed || outcome instanceof ExecutionOutcome.Cancelled || outcome instanceof ExecutionOutcome.NeedsArbitration) {
+                        if (outcome instanceof ExecutionOutcome.Failed || outcome instanceof ExecutionOutcome.NeedsArbitration || outcome instanceof ExecutionOutcome.Cancelled) {
+                            handleParentAggregationOnFailure(reloadTask(taskId));
+                        }
+                        return outcome;
+                    }
                     task = reloadTask(taskId);
                 }
                 default -> {
@@ -215,7 +263,6 @@ public class TaskExecutionService {
         return switch (plannerOutcome) {
             case PlannerService.PlannerOutcome.Success(var updatedTask, var childTasks) -> {
                 if (!childTasks.isEmpty()) {
-                    updatedTask.setStatus(TaskStatus.COMPLETED);
                     updatedTask.setUpdatedAt(Instant.now());
                     for (Task child : childTasks) {
                         saveTask(child);
@@ -687,6 +734,7 @@ private ExecutionOutcome runTestWriting(Task task) {
             task.setUpdatedAt(Instant.now());
             saveTask(task);
             recordEvent(task, "COMPLETED", "All reviewers approved, task completed");
+            handleParentAggregationOnCompletion(task);
             return new ExecutionOutcome.Success(task);
         }
 
@@ -865,5 +913,35 @@ private ExecutionOutcome runTestWriting(Task task) {
     private static String truncate(String s, int maxLen) {
         if (s == null) return "";
         return s.length() <= maxLen ? s : s.substring(0, maxLen);
+    }
+
+    private void handleParentAggregationOnCompletion(Task task) {
+        if (task.getParentId() != null && !task.getParentId().isBlank()) {
+            try {
+                Task updatedParent = dependencyTracker.handleChildTaskCompletion(task.getId());
+                if (updatedParent != null) {
+                    recordEvent(updatedParent, "PARENT_STATUS_AGGREGATED",
+                            "Parent task " + updatedParent.getId() + " status updated to " + updatedParent.getStatus()
+                                    + " after child task " + task.getId() + " completed");
+                }
+            } catch (Exception e) {
+                log.warn("Failed to aggregate parent status after child task {} completion: {}", task.getId(), e.getMessage());
+            }
+        }
+    }
+
+    private void handleParentAggregationOnFailure(Task task) {
+        if (task.getParentId() != null && !task.getParentId().isBlank()) {
+            try {
+                List<String> blockedSiblings = dependencyTracker.handleChildTaskFailure(task.getId());
+                for (String siblingId : blockedSiblings) {
+                    recordEvent(task, "SIBLING_BLOCKED_BY_FAILURE",
+                            "Sibling task " + siblingId + " is blocked because task " + task.getId() + " "
+                                    + task.getStatus());
+                }
+            } catch (Exception e) {
+                log.warn("Failed to aggregate parent status after child task {} failure: {}", task.getId(), e.getMessage());
+            }
+        }
     }
 }
