@@ -521,11 +521,20 @@ private ExecutionOutcome runTestWriting(Task task) {
         } catch (Exception e) {
             String error = "Coder execution exception: " + e.getMessage();
             log.error(error, e);
+            task.setCodeRetryCount(task.getCodeRetryCount() + 1);
+            if (task.getCodeRetryCount() > maxCodeRetries) {
+                task.setStatus(TaskStatus.NEEDS_ARBITRATION);
+                task.setError("Max code retries exceeded after Coder exception");
+                task.setUpdatedAt(Instant.now());
+                saveTask(task);
+                recordEvent(task, "NEEDS_ARBITRATION", error);
+                return new ExecutionOutcome.NeedsArbitration(task, "Max code retries exceeded");
+            }
             task.setError(error);
             task.setStatus(TaskStatus.CODING);
             task.setUpdatedAt(Instant.now());
             saveTask(task);
-            recordEvent(task, "CODER_FAILED", error);
+            recordEvent(task, "CODER_FAILED", error + " (retry " + task.getCodeRetryCount() + "/" + maxCodeRetries + ")");
             return new ExecutionOutcome.Success(task);
         }
 
@@ -535,6 +544,15 @@ private ExecutionOutcome runTestWriting(Task task) {
         }
 
         if (result.agentRun().exitCode() != 0) {
+            task.setCodeRetryCount(task.getCodeRetryCount() + 1);
+            if (task.getCodeRetryCount() > maxCodeRetries) {
+                task.setStatus(TaskStatus.NEEDS_ARBITRATION);
+                task.setError("Max code retries exceeded after Coder non-zero exit");
+                task.setUpdatedAt(Instant.now());
+                saveTask(task);
+                recordEvent(task, "NEEDS_ARBITRATION", "Max code retries exceeded");
+                return new ExecutionOutcome.NeedsArbitration(task, "Max code retries exceeded");
+            }
             task.setError("Coder exited with code: " + result.agentRun().exitCode());
             task.setStatus(TaskStatus.CODING);
             task.setUpdatedAt(Instant.now());
@@ -544,6 +562,15 @@ private ExecutionOutcome runTestWriting(Task task) {
         }
 
         if (result.extractionResult().hasCriticalError()) {
+            task.setCodeRetryCount(task.getCodeRetryCount() + 1);
+            if (task.getCodeRetryCount() > maxCodeRetries) {
+                task.setStatus(TaskStatus.NEEDS_ARBITRATION);
+                task.setError("Max code retries exceeded after Coder extraction failure: " + result.extractionResult().criticalError());
+                task.setUpdatedAt(Instant.now());
+                saveTask(task);
+                recordEvent(task, "NEEDS_ARBITRATION", "Max code retries exceeded");
+                return new ExecutionOutcome.NeedsArbitration(task, "Max code retries exceeded");
+            }
             task.setError("Coder extraction failed: " + result.extractionResult().criticalError());
             task.setStatus(TaskStatus.CODING);
             task.setUpdatedAt(Instant.now());

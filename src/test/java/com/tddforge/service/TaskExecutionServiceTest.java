@@ -840,6 +840,109 @@ class TaskExecutionServiceTest {
     }
 
     @Nested
+    class CoderFailureRetryLimits {
+
+        @Test
+        void shouldEnterNeedsArbitrationWhenCoderExceptionExceedsRetries() {
+            Task task = createDefaultTask();
+            setupTaskSaveWithReload(task);
+
+            String plannerJson = "{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Simple\",\"plan\":\"Do the thing\"}";
+            AgentRun plannerRun = createAgentRun(ndjsonWithText(plannerJson), 0);
+            ExtractionResult<PlannerResult> plannerExtract = realExtractor.extractPlannerResult(plannerRun);
+            when(plannerAgent.run(any())).thenReturn(new AgentResult<>(plannerRun, plannerExtract));
+            when(worktreeManager.generateBranchName(any(), any())).thenReturn("task-1/test-task");
+            when(worktreeManager.createWorktree(any(), any())).thenReturn(Path.of("/worktrees/task-1"));
+
+            AgentRun twRun = createAgentRun(ndjsonWithText("TestWriter EXPECTED_RED"), 0);
+            ExtractionResult<TestWriterResult> twExtract = ExtractionResult.success(
+                    new TestWriterResult("Test summary", "mvn test", "EXPECTED_RED", "abc123", List.of()), "");
+            when(testWriterAgent.run(any())).thenReturn(new AgentResult<>(twRun, twExtract));
+
+            AgentRun trRun = createAgentRun(ndjsonWithText("APPROVE\nGood tests."), 0);
+            ExtractionResult<TestReviewerResult> trExtract = ExtractionResult.success(
+                    new TestReviewerResult(ReviewVerdict.APPROVE, "Good tests."), "");
+            when(testReviewerAgent.run(any())).thenReturn(new AgentResult<>(trRun, trExtract));
+
+            when(coderAgent.run(any())).thenThrow(new RuntimeException("opencode crashed"));
+
+            TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
+
+            assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.NeedsArbitration.class);
+            TaskExecutionService.ExecutionOutcome.NeedsArbitration needsArb = (TaskExecutionService.ExecutionOutcome.NeedsArbitration) outcome;
+            assertThat(needsArb.task().getStatus()).isEqualTo(TaskStatus.NEEDS_ARBITRATION);
+            assertThat(needsArb.task().getCodeRetryCount()).isEqualTo(orchestratorConfig.getMaxCodeRetries() + 1);
+        }
+
+        @Test
+        void shouldEnterNeedsArbitrationWhenCoderNonZeroExitExceedsRetries() {
+            Task task = createDefaultTask();
+            setupTaskSaveWithReload(task);
+
+            String plannerJson = "{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Simple\",\"plan\":\"Do the thing\"}";
+            AgentRun plannerRun = createAgentRun(ndjsonWithText(plannerJson), 0);
+            ExtractionResult<PlannerResult> plannerExtract = realExtractor.extractPlannerResult(plannerRun);
+            when(plannerAgent.run(any())).thenReturn(new AgentResult<>(plannerRun, plannerExtract));
+            when(worktreeManager.generateBranchName(any(), any())).thenReturn("task-1/test-task");
+            when(worktreeManager.createWorktree(any(), any())).thenReturn(Path.of("/worktrees/task-1"));
+
+            AgentRun twRun = createAgentRun(ndjsonWithText("TestWriter EXPECTED_RED"), 0);
+            ExtractionResult<TestWriterResult> twExtract = ExtractionResult.success(
+                    new TestWriterResult("Test summary", "mvn test", "EXPECTED_RED", "abc123", List.of()), "");
+            when(testWriterAgent.run(any())).thenReturn(new AgentResult<>(twRun, twExtract));
+
+            AgentRun trRun = createAgentRun(ndjsonWithText("APPROVE\nGood tests."), 0);
+            ExtractionResult<TestReviewerResult> trExtract = ExtractionResult.success(
+                    new TestReviewerResult(ReviewVerdict.APPROVE, "Good tests."), "");
+            when(testReviewerAgent.run(any())).thenReturn(new AgentResult<>(trRun, trExtract));
+
+            AgentRun coderFailRun = createAgentRun(ndjsonWithText("Build failed"), 1);
+            when(coderAgent.run(any())).thenReturn(new AgentResult<>(coderFailRun, ExtractionResult.criticalError("exit code 1", "")));
+
+            TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
+
+            assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.NeedsArbitration.class);
+            TaskExecutionService.ExecutionOutcome.NeedsArbitration needsArb = (TaskExecutionService.ExecutionOutcome.NeedsArbitration) outcome;
+            assertThat(needsArb.task().getStatus()).isEqualTo(TaskStatus.NEEDS_ARBITRATION);
+            assertThat(needsArb.task().getCodeRetryCount()).isEqualTo(orchestratorConfig.getMaxCodeRetries() + 1);
+        }
+
+        @Test
+        void shouldEnterNeedsArbitrationWhenCoderExtractionFailureExceedsRetries() {
+            Task task = createDefaultTask();
+            setupTaskSaveWithReload(task);
+
+            String plannerJson = "{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Simple\",\"plan\":\"Do the thing\"}";
+            AgentRun plannerRun = createAgentRun(ndjsonWithText(plannerJson), 0);
+            ExtractionResult<PlannerResult> plannerExtract = realExtractor.extractPlannerResult(plannerRun);
+            when(plannerAgent.run(any())).thenReturn(new AgentResult<>(plannerRun, plannerExtract));
+            when(worktreeManager.generateBranchName(any(), any())).thenReturn("task-1/test-task");
+            when(worktreeManager.createWorktree(any(), any())).thenReturn(Path.of("/worktrees/task-1"));
+
+            AgentRun twRun = createAgentRun(ndjsonWithText("TestWriter EXPECTED_RED"), 0);
+            ExtractionResult<TestWriterResult> twExtract = ExtractionResult.success(
+                    new TestWriterResult("Test summary", "mvn test", "EXPECTED_RED", "abc123", List.of()), "");
+            when(testWriterAgent.run(any())).thenReturn(new AgentResult<>(twRun, twExtract));
+
+            AgentRun trRun = createAgentRun(ndjsonWithText("APPROVE\nGood tests."), 0);
+            ExtractionResult<TestReviewerResult> trExtract = ExtractionResult.success(
+                    new TestReviewerResult(ReviewVerdict.APPROVE, "Good tests."), "");
+            when(testReviewerAgent.run(any())).thenReturn(new AgentResult<>(trRun, trExtract));
+
+            AgentRun coderBadRun = createAgentRun(ndjsonWithText("No structured output"), 0);
+            ExtractionResult<CoderResult> coderBadExtract = ExtractionResult.criticalError("Could not extract CoderResult", "");
+            when(coderAgent.run(any())).thenReturn(new AgentResult<>(coderBadRun, coderBadExtract));
+
+            TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
+
+            assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.NeedsArbitration.class);
+            TaskExecutionService.ExecutionOutcome.NeedsArbitration needsArb = (TaskExecutionService.ExecutionOutcome.NeedsArbitration) outcome;
+            assertThat(needsArb.task().getStatus()).isEqualTo(TaskStatus.NEEDS_ARBITRATION);
+            assertThat(needsArb.task().getCodeRetryCount()).isEqualTo(orchestratorConfig.getMaxCodeRetries() + 1);
+        }
+    }
+
+    @Nested
     class CancelledTaskStops {
 
         @Test
