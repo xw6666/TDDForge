@@ -1515,6 +1515,7 @@ class TaskExecutionServiceTest {
 
             verify(worktreeManager, never()).removeWorktree(any());
             verify(taskRepository, never()).delete(any());
+            verify(agentRunRepository, never()).delete(any());
         }
 
         @Test

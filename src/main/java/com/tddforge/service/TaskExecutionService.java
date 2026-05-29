@@ -253,6 +253,8 @@ public class TaskExecutionService {
             saveTask(reloadedAfterPlanner);
         }
 
+        task = reloadedAfterPlanner;
+
         if (result.extractionResult().hasCriticalError()) {
             String error = result.extractionResult().criticalError();
             task.setError(error);
