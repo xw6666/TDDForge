@@ -171,7 +171,7 @@ public class TaskExecutionService {
         AgentContext context = new AgentContext(
                 task.getId(), Path.of(task.getRepoPath()), null, modelSpec,
                 task.getTitle(), task.getDescription(), task.getRepoPath(), timeout,
-                task.isForceNoSplit(), null, null, null, null, null, null, null, null, null, null
+                task.isForceNoSplit(), null, null, null, null, null, null, null, null, null, null, null, null
         );
 
         AgentResult<PlannerResult> result;
@@ -267,11 +267,28 @@ public class TaskExecutionService {
         return new ExecutionOutcome.Success(task);
     }
 
-    private ExecutionOutcome runTestWriting(Task task) {
+private ExecutionOutcome runTestWriting(Task task) {
         int maxTestRetries = orchestratorConfig.getMaxTestRetries();
 
         if (task.getStatus() == TaskStatus.CANCELLED) {
             return new ExecutionOutcome.Cancelled(task);
+        }
+
+        boolean isRetry = task.getStatus() == TaskStatus.TEST_WRITE_FAILED ||
+                          task.getStatus() == TaskStatus.TEST_REVIEW_FAILED;
+        String testPhaseFeedback = null;
+        Integer attempt = null;
+
+        if (isRetry) {
+            attempt = task.getTestRetryCount() + 1;
+            if (task.getStatus() == TaskStatus.TEST_REVIEW_FAILED && task.getTestReviewOutput() != null) {
+                testPhaseFeedback = "TestReviewer REQUEST_CHANGES feedback:\n" + task.getTestReviewOutput();
+            } else if (task.getError() != null) {
+                testPhaseFeedback = "TestWriter self-validation failure:\n" + task.getError();
+                if (task.getTestOutput() != null && !task.getTestOutput().isBlank()) {
+                    testPhaseFeedback += "\n\nPrevious TestWriter output:\n" + truncate(task.getTestOutput(), 3000);
+                }
+            }
         }
 
         task = moveToStatus(task, TaskStatus.TEST_WRITING);
@@ -292,14 +309,18 @@ public class TaskExecutionService {
         AgentContext context = new AgentContext(
                 task.getId(), Path.of(worktreePath), null, modelSpec,
                 task.getTitle(), task.getDescription(), task.getRepoPath(), timeout,
-                task.isForceNoSplit(), task.getPlanOutput(), null, null, null, null, null, null, null, null, null
+                task.isForceNoSplit(), task.getPlanOutput(),
+                task.getTestOutput() != null ? task.getTestOutput() : null,
+                task.getTestReviewOutput() != null ? task.getTestReviewOutput() : null,
+                null, null, null, null, null, null, null,
+                testPhaseFeedback, attempt
         );
 
         AgentResult<TestWriterResult> result;
         try {
             result = testWriterAgent.run(context);
         } catch (Exception e) {
-            return handleTestWriteFailure(task, "TestWriter execution exception: " + e.getMessage());
+            return handleTestWriteRetry(task, "TestWriter execution exception: " + e.getMessage(), maxTestRetries);
         }
 
         saveAgentRun(result.agentRun());
@@ -325,6 +346,14 @@ public class TaskExecutionService {
             return handleTestWriteRetry(task, "TestWriter self-check result: INVALID", maxTestRetries);
         }
 
+        if (twResult.commitHash() == null || twResult.commitHash().isBlank()) {
+            return handleTestWriteRetry(task, "TestWriter did not include a test commit", maxTestRetries);
+        }
+
+        if ("unknown".equals(twResult.testCommand())) {
+            return handleTestWriteRetry(task, "TestWriter did not include a valid test command", maxTestRetries);
+        }
+
         task.setStatus(TaskStatus.TEST_REVIEWING);
         task.setUpdatedAt(Instant.now());
         saveTask(task);
@@ -332,17 +361,9 @@ public class TaskExecutionService {
         return new ExecutionOutcome.Success(task);
     }
 
-    private ExecutionOutcome handleTestWriteFailure(Task task, String error) {
-        task.setError(error);
-        task.setStatus(TaskStatus.FAILED);
-        task.setUpdatedAt(Instant.now());
-        saveTask(task);
-        recordEvent(task, "TEST_WRITE_FAILED", error);
-        return new ExecutionOutcome.Failed(task, error);
-    }
-
     private ExecutionOutcome handleTestWriteRetry(Task task, String reason, int maxTestRetries) {
         task.setTestRetryCount(task.getTestRetryCount() + 1);
+        task.setError(reason);
 
         if (task.getTestRetryCount() > maxTestRetries) {
             task.setStatus(TaskStatus.NEEDS_ARBITRATION);
@@ -377,7 +398,7 @@ public class TaskExecutionService {
                 task.getId(), Path.of(worktreePath), null, modelSpec,
                 task.getTitle(), task.getDescription(), task.getRepoPath(), timeout,
                 task.isForceNoSplit(), task.getPlanOutput(), task.getTestOutput(),
-                null, task.getTestOutput(), null, null, null, null, null, null
+                null, task.getTestOutput(), null, null, null, null, null, null, null, null
         );
 
         AgentResult<TestReviewerResult> result;
@@ -477,7 +498,7 @@ public class TaskExecutionService {
                 task.isForceNoSplit(), task.getPlanOutput(), task.getTestOutput(),
                 task.getTestReviewOutput(), null, task.getCodeOutput(),
                 task.getReviewOutput() != null ? task.getReviewOutput() : null,
-                null, null, null, null
+                null, null, null, null, null, null
         );
 
         AgentResult<CoderResult> result;
@@ -565,7 +586,7 @@ public class TaskExecutionService {
                 task.getTitle(), task.getDescription(), task.getRepoPath(), timeout,
                 task.isForceNoSplit(), task.getPlanOutput(), task.getTestOutput(),
                 task.getTestReviewOutput(), null, task.getCodeOutput(),
-                priorRejections, null, null, null, "reviewer-1"
+                priorRejections, null, null, null, "reviewer-1", null, null
         );
 
         AgentResult<ReviewerResult> result;

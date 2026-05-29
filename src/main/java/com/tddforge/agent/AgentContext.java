@@ -23,7 +23,9 @@ public record AgentContext(
         @Nullable String filePath,
         @Nullable String lineNumber,
         @Nullable String dependencyContext,
-        @Nullable String reviewerId
+        @Nullable String reviewerId,
+        @Nullable String testPhaseFeedback,
+        @Nullable Integer attempt
 ) {
 
     public AgentContext {
