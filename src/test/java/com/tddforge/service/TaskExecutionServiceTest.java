@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -1475,6 +1476,172 @@ class TaskExecutionServiceTest {
 
             verify(worktreeManager, never()).removeWorktree(any());
             verify(taskRepository, never()).delete(any());
+        }
+
+        @Test
+        void shouldStopAfterTestWriterWhenCancelledDuringTestWriting() {
+            Task task = createDefaultTask();
+            AtomicReference<TaskEntity> latestEntity = new AtomicReference<>(TaskEntity.fromDomain(task));
+            lenient().when(taskRepository.save(any(TaskEntity.class))).thenAnswer(invocation -> {
+                TaskEntity entity = invocation.getArgument(0);
+                latestEntity.set(entity);
+                return entity;
+            });
+            lenient().when(agentRunRepository.save(any(AgentRunEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            lenient().when(taskEventRepository.save(any(TaskEventEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            String plannerJson = "{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Simple\",\"plan\":\"Do the thing\"}";
+            AgentRun plannerRun = createAgentRun(ndjsonWithText(plannerJson), 0);
+            ExtractionResult<PlannerResult> plannerExtract = realExtractor.extractPlannerResult(plannerRun);
+            when(plannerAgent.run(any())).thenReturn(new AgentResult<>(plannerRun, plannerExtract));
+            when(worktreeManager.generateBranchName(any(), any())).thenReturn("task-1/test-task");
+            when(worktreeManager.createWorktree(any(), any())).thenReturn(Path.of("/worktrees/task-1"));
+
+            AgentRun twRun = createAgentRun(ndjsonWithText("TestWriter EXPECTED_RED"), 0);
+            ExtractionResult<TestWriterResult> twExtract = ExtractionResult.success(
+                    new TestWriterResult("Test summary", "mvn test", "EXPECTED_RED", "abc123", List.of("Test.java")), "");
+            when(testWriterAgent.run(any())).thenReturn(new AgentResult<>(twRun, twExtract));
+
+            AtomicBoolean seenTestWriting = new AtomicBoolean(false);
+            when(taskRepository.findById("task-1")).thenAnswer(invocation -> {
+                TaskEntity entity = latestEntity.get();
+                if (entity.getStatus() == TaskStatus.TEST_WRITING) {
+                    if (seenTestWriting.get()) {
+                        entity.setStatus(TaskStatus.CANCELLED);
+                    } else {
+                        seenTestWriting.set(true);
+                    }
+                }
+                return Optional.of(entity);
+            });
+
+            TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
+
+            assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.Cancelled.class);
+            verify(plannerAgent).run(any());
+            verify(testWriterAgent).run(any());
+            verify(testReviewerAgent, never()).run(any());
+            verify(coderAgent, never()).run(any());
+            verify(reviewerAgent, never()).run(any());
+        }
+
+        @Test
+        void shouldStopAfterCoderWhenCancelledDuringCoding() {
+            Task task = createDefaultTask();
+            AtomicReference<TaskEntity> latestEntity = new AtomicReference<>(TaskEntity.fromDomain(task));
+            lenient().when(taskRepository.save(any(TaskEntity.class))).thenAnswer(invocation -> {
+                TaskEntity entity = invocation.getArgument(0);
+                latestEntity.set(entity);
+                return entity;
+            });
+            lenient().when(agentRunRepository.save(any(AgentRunEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            lenient().when(taskEventRepository.save(any(TaskEventEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            String plannerJson = "{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Simple\",\"plan\":\"Do the thing\"}";
+            AgentRun plannerRun = createAgentRun(ndjsonWithText(plannerJson), 0);
+            ExtractionResult<PlannerResult> plannerExtract = realExtractor.extractPlannerResult(plannerRun);
+            when(plannerAgent.run(any())).thenReturn(new AgentResult<>(plannerRun, plannerExtract));
+            when(worktreeManager.generateBranchName(any(), any())).thenReturn("task-1/test-task");
+            when(worktreeManager.createWorktree(any(), any())).thenReturn(Path.of("/worktrees/task-1"));
+
+            AgentRun twRun = createAgentRun(ndjsonWithText("TestWriter EXPECTED_RED"), 0);
+            ExtractionResult<TestWriterResult> twExtract = ExtractionResult.success(
+                    new TestWriterResult("Test summary", "mvn test", "EXPECTED_RED", "abc123", List.of()), "");
+            when(testWriterAgent.run(any())).thenReturn(new AgentResult<>(twRun, twExtract));
+
+            AgentRun trRun = createAgentRun(ndjsonWithText("APPROVE\nGood tests."), 0);
+            ExtractionResult<TestReviewerResult> trExtract = ExtractionResult.success(
+                    new TestReviewerResult(ReviewVerdict.APPROVE, "Good tests."), "");
+            when(testReviewerAgent.run(any())).thenReturn(new AgentResult<>(trRun, trExtract));
+
+            AgentRun coderRun = createAgentRun(ndjsonWithText("Implementation done"), 0);
+            ExtractionResult<CoderResult> coderExtract = ExtractionResult.success(
+                    new CoderResult("Fixed bug", "mvn test", "pass", "def456", List.of()), "");
+            when(coderAgent.run(any())).thenReturn(new AgentResult<>(coderRun, coderExtract));
+
+            AtomicBoolean seenCoding = new AtomicBoolean(false);
+            when(taskRepository.findById("task-1")).thenAnswer(invocation -> {
+                TaskEntity entity = latestEntity.get();
+                if (entity.getStatus() == TaskStatus.CODING) {
+                    if (seenCoding.get()) {
+                        entity.setStatus(TaskStatus.CANCELLED);
+                    } else {
+                        seenCoding.set(true);
+                    }
+                }
+                return Optional.of(entity);
+            });
+
+            TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
+
+            assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.Cancelled.class);
+            verify(plannerAgent).run(any());
+            verify(testWriterAgent).run(any());
+            verify(testReviewerAgent).run(any());
+            verify(coderAgent).run(any());
+            verify(reviewerAgent, never()).run(any());
+        }
+
+        @Test
+        void shouldStopAfterReviewerWhenCancelledDuringReviewing() {
+            Task task = createDefaultTask();
+            AtomicReference<TaskEntity> latestEntity = new AtomicReference<>(TaskEntity.fromDomain(task));
+            lenient().when(taskRepository.save(any(TaskEntity.class))).thenAnswer(invocation -> {
+                TaskEntity entity = invocation.getArgument(0);
+                latestEntity.set(entity);
+                return entity;
+            });
+            lenient().when(agentRunRepository.save(any(AgentRunEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            lenient().when(taskEventRepository.save(any(TaskEventEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            String plannerJson = "{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Simple\",\"plan\":\"Do the thing\"}";
+            AgentRun plannerRun = createAgentRun(ndjsonWithText(plannerJson), 0);
+            ExtractionResult<PlannerResult> plannerExtract = realExtractor.extractPlannerResult(plannerRun);
+            when(plannerAgent.run(any())).thenReturn(new AgentResult<>(plannerRun, plannerExtract));
+            when(worktreeManager.generateBranchName(any(), any())).thenReturn("task-1/test-task");
+            when(worktreeManager.createWorktree(any(), any())).thenReturn(Path.of("/worktrees/task-1"));
+
+            AgentRun twRun = createAgentRun(ndjsonWithText("TestWriter EXPECTED_RED"), 0);
+            ExtractionResult<TestWriterResult> twExtract = ExtractionResult.success(
+                    new TestWriterResult("Test summary", "mvn test", "EXPECTED_RED", "abc123", List.of()), "");
+            when(testWriterAgent.run(any())).thenReturn(new AgentResult<>(twRun, twExtract));
+
+            AgentRun trRun = createAgentRun(ndjsonWithText("APPROVE\nGood tests."), 0);
+            ExtractionResult<TestReviewerResult> trExtract = ExtractionResult.success(
+                    new TestReviewerResult(ReviewVerdict.APPROVE, "Good tests."), "");
+            when(testReviewerAgent.run(any())).thenReturn(new AgentResult<>(trRun, trExtract));
+
+            AgentRun coderRun = createAgentRun(ndjsonWithText("Implementation done"), 0);
+            ExtractionResult<CoderResult> coderExtract = ExtractionResult.success(
+                    new CoderResult("Fixed bug", "mvn test", "pass", "def456", List.of()), "");
+            when(coderAgent.run(any())).thenReturn(new AgentResult<>(coderRun, coderExtract));
+
+            AgentRun reviewerRun = createAgentRun(ndjsonWithText("APPROVE\nLooks good."), 0);
+            ExtractionResult<ReviewerResult> reviewerExtract = ExtractionResult.success(
+                    new ReviewerResult("reviewer-1", ReviewVerdict.APPROVE, "Looks good.", null), "");
+            when(reviewerAgent.run(any())).thenReturn(new AgentResult<>(reviewerRun, reviewerExtract));
+
+            AtomicBoolean seenReviewing = new AtomicBoolean(false);
+            when(taskRepository.findById("task-1")).thenAnswer(invocation -> {
+                TaskEntity entity = latestEntity.get();
+                if (entity.getStatus() == TaskStatus.REVIEWING) {
+                    if (seenReviewing.get()) {
+                        entity.setStatus(TaskStatus.CANCELLED);
+                    } else {
+                        seenReviewing.set(true);
+                    }
+                }
+                return Optional.of(entity);
+            });
+
+            TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
+
+            assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.Cancelled.class);
+            verify(plannerAgent).run(any());
+            verify(testWriterAgent).run(any());
+            verify(testReviewerAgent).run(any());
+            verify(coderAgent).run(any());
+            verify(reviewerAgent).run(any());
         }
     }
 }

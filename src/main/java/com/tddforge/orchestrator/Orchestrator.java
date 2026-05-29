@@ -62,14 +62,12 @@ public class Orchestrator {
         started = false;
         openCodeClient.killAll();
         if (executorService != null) {
-            executorService.shutdown();
+            executorService.shutdownNow();
             try {
-                if (!executorService.awaitTermination(30, TimeUnit.SECONDS)) {
-                    log.warn("Orchestrator executor did not terminate within 30 seconds, forcing shutdown");
-                    executorService.shutdownNow();
+                if (!executorService.awaitTermination(10, TimeUnit.SECONDS)) {
+                    log.warn("Orchestrator executor did not terminate within 10 seconds after shutdownNow");
                 }
             } catch (InterruptedException e) {
-                executorService.shutdownNow();
                 Thread.currentThread().interrupt();
             }
         }

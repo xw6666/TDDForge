@@ -248,6 +248,11 @@ public class TaskExecutionService {
             saveTask(task);
         }
 
+        Task reloadedAfterPlanner = reloadTask(task.getId());
+        if (reloadedAfterPlanner.getStatus() == TaskStatus.CANCELLED) {
+            return new ExecutionOutcome.Cancelled(reloadedAfterPlanner);
+        }
+
         if (result.extractionResult().hasCriticalError()) {
             String error = result.extractionResult().criticalError();
             task.setError(error);
@@ -384,6 +389,11 @@ private ExecutionOutcome runTestWriting(Task task) {
             task.addSessionId(result.agentRun().sessionId());
         }
 
+        Task reloadedAfterTestWrite = reloadTask(task.getId());
+        if (reloadedAfterTestWrite.getStatus() == TaskStatus.CANCELLED) {
+            return new ExecutionOutcome.Cancelled(reloadedAfterTestWrite);
+        }
+
         if (result.agentRun().exitCode() != 0) {
             return handleTestWriteRetry(task, "TestWriter exited with non-zero code: " + result.agentRun().exitCode(), maxTestRetries);
         }
@@ -474,6 +484,11 @@ private ExecutionOutcome runTestWriting(Task task) {
         saveAgentRun(result.agentRun());
         if (result.agentRun().sessionId() != null && !result.agentRun().sessionId().isBlank()) {
             task.addSessionId(result.agentRun().sessionId());
+        }
+
+        Task reloadedAfterTestReview = reloadTask(task.getId());
+        if (reloadedAfterTestReview.getStatus() == TaskStatus.CANCELLED) {
+            return new ExecutionOutcome.Cancelled(reloadedAfterTestReview);
         }
 
         if (result.extractionResult().hasCriticalError()) {
@@ -602,6 +617,11 @@ private ExecutionOutcome runTestWriting(Task task) {
             task.addSessionId(result.agentRun().sessionId());
         }
 
+        Task reloadedAfterCoder = reloadTask(task.getId());
+        if (reloadedAfterCoder.getStatus() == TaskStatus.CANCELLED) {
+            return new ExecutionOutcome.Cancelled(reloadedAfterCoder);
+        }
+
         if (result.agentRun().exitCode() != 0) {
             task.setCodeRetryCount(task.getCodeRetryCount() + 1);
             if (task.getCodeRetryCount() > maxCodeRetries) {
@@ -693,6 +713,11 @@ private ExecutionOutcome runTestWriting(Task task) {
             saveAgentRun(result.agentRun());
             if (result.agentRun().sessionId() != null && !result.agentRun().sessionId().isBlank()) {
                 task.addSessionId(result.agentRun().sessionId());
+            }
+
+            Task reloadedAfterReviewer = reloadTask(task.getId());
+            if (reloadedAfterReviewer.getStatus() == TaskStatus.CANCELLED) {
+                return new ExecutionOutcome.Cancelled(reloadedAfterReviewer);
             }
 
             if (result.extractionResult().hasCriticalError()) {
