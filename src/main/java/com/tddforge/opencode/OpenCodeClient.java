@@ -6,9 +6,9 @@ import com.tddforge.domain.OpenCodeRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -56,7 +56,7 @@ public class OpenCodeClient {
             List<String> command = buildCommand(request, sessionId, prompt);
             log.info("Running opencode (attempt {}/{}): {}", attempt, maxContinues, String.join(" ", command));
 
-            RunResult result = executeProcess(taskId, command, request.timeoutSeconds());
+            RunResult result = executeProcess(taskId, request.worktreeDir(), command, request.timeoutSeconds());
             String attemptOutput = result.output();
 
             if (!accumulatedOutput.isEmpty()) {
@@ -116,15 +116,22 @@ public class OpenCodeClient {
         return false;
     }
 
-    private RunResult executeProcess(String taskId, List<String> command, long timeoutSeconds) {
+    private RunResult executeProcess(String taskId, Path worktreeDir, List<String> command, long timeoutSeconds) {
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.environment().put("OPENCODE_CONFIG", config.getConfigPath());
+        pb.directory(worktreeDir.toFile());
 
-        StringBuilder outputBuilder = new StringBuilder();
+        Path outFile = null;
+        Path errFile = null;
         int exitCode = 0;
         long pid = -1;
 
         try {
+            outFile = Files.createTempFile("opencode-stdout-", ".log");
+            errFile = Files.createTempFile("opencode-stderr-", ".log");
+            pb.redirectOutput(outFile.toFile());
+            pb.redirectError(errFile.toFile());
+
             Process process = pb.start();
             pid = process.pid();
             runningProcesses.put(taskId, process);
@@ -141,47 +148,35 @@ public class OpenCodeClient {
                 exitCode = process.exitValue();
             }
 
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (outputBuilder.length() > 0) {
-                        outputBuilder.append("\n");
-                    }
-                    outputBuilder.append(line);
-                }
-            }
+            String output = Files.readString(outFile);
+            String stderr = Files.readString(errFile).trim();
 
-            StringBuilder stderrBuilder = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (stderrBuilder.length() > 0) {
-                        stderrBuilder.append("\n");
-                    }
-                    stderrBuilder.append(line);
-                }
-            }
-
-            String stderr = stderrBuilder.toString().trim();
             if (!stderr.isEmpty()) {
                 log.warn("Opencode stderr (PID {}): {}", pid, stderr);
-                if (exitCode != 0) {
-                    outputBuilder.append("\n--- stderr ---\n").append(stderr);
-                }
             }
+
+            if (exitCode != 0 && !stderr.isEmpty()) {
+                output = output + "\n--- stderr ---\n" + stderr;
+            }
+
+            return new RunResult(output, exitCode);
 
         } catch (IOException e) {
             log.error("Failed to start opencode process", e);
-            exitCode = -2;
+            return new RunResult("", -2);
         } catch (InterruptedException e) {
             log.error("Opencode process was interrupted (PID {})", pid, e);
             Thread.currentThread().interrupt();
-            exitCode = -3;
+            return new RunResult("", -3);
         } finally {
             runningProcesses.remove(taskId);
+            if (outFile != null) {
+                try { Files.deleteIfExists(outFile); } catch (IOException ignored) {}
+            }
+            if (errFile != null) {
+                try { Files.deleteIfExists(errFile); } catch (IOException ignored) {}
+            }
         }
-
-        return new RunResult(outputBuilder.toString(), exitCode);
     }
 
     private List<String> buildCommand(OpenCodeRequest request, String sessionId, String prompt) {
