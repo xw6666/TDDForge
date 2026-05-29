@@ -31,7 +31,17 @@ public class AgentOutputExtractor {
             Pattern.CASE_INSENSITIVE);
 
     private static final Pattern TEST_ISSUE_PATTERN = Pattern.compile(
-            "\\b(?:test|tests|testing|coverage|assertion|assertions|weak test|invalid test|test coverage|test was weakened|skipped test|fixture|test fixture)\\b",
+            "\\b(?:test(?:s|ing)?\\s+(?:is|are|was|were|been)\\s+invalid|" +
+                    "test(?:s|ing)?\\s+(?:is|are|was|were|been)\\s+weak|" +
+                    "weak\\s+test|invalid\\s+test|" +
+                    "insufficient\\s+test\\s+coverage|test\\s+coverage|" +
+                    "test(?:s)?\\s+(?:was|were|been)\\s+weakened|" +
+                    "skipped\\s+test(?:s)?|deleted\\s+test(?:s)?|" +
+                    "assertion(?:s)?\\s+(?:is|are|was|were)?\\s*wrong|" +
+                    "fixture(?:s)?\\s+(?:is|are|was|were)?\\s*wrong|" +
+                    "fixture\\s+error|" +
+                    "test\\s+logic\\s+error|" +
+                    "test(?:s)?\\s+(?:is|are|was|were)?\\s+(?:irrelevant|not\\s+relevant))\\b",
             Pattern.CASE_INSENSITIVE);
 
     private static final Pattern LABELED_COMMAND_PATTERN = Pattern.compile(
@@ -465,7 +475,7 @@ public class AgentOutputExtractor {
         return feedback.toString().trim();
     }
 
-    private String classifyReviewerFeedback(ReviewVerdict verdict, String feedback) {
+    public String classifyReviewerFeedback(ReviewVerdict verdict, String feedback) {
         if (verdict == ReviewVerdict.APPROVE) {
             return null;
         }

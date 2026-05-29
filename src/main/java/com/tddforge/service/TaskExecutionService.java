@@ -15,13 +15,20 @@ import com.tddforge.persistence.TaskRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.Nullable;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class TaskExecutionService {
 
     private static final Logger log = LoggerFactory.getLogger(TaskExecutionService.class);
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final TaskRepository taskRepository;
     private final AgentRunRepository agentRunRepository;
@@ -665,7 +672,8 @@ private ExecutionOutcome runTestWriting(Task task) {
                 firstRejection = reviewerResult;
                 recordEvent(task, "REVIEW_REJECTED",
                         "Reviewer " + reviewerId + " requested changes, category: " + reviewerResult.category()
-                                + ", feedback: " + truncate(reviewerResult.feedback(), 200));
+                                + ", feedback: " + truncate(reviewerResult.feedback(), 200),
+                        buildReviewEventData(reviewerResult, null, null));
                 break;
             }
 
@@ -692,14 +700,29 @@ private ExecutionOutcome runTestWriting(Task task) {
                 task.setError("Max test retries exceeded after Reviewer identified test_issue");
                 task.setUpdatedAt(Instant.now());
                 saveTask(task);
-                recordEvent(task, "NEEDS_ARBITRATION", "Max test retries exceeded");
+                recordEvent(task, "REVIEW_CLASSIFIED",
+                        "Reviewer classified as test_issue, max test retries exceeded",
+                        buildReviewEventData(firstRejection, "test_issue", "NEEDS_ARBITRATION"));
                 return new ExecutionOutcome.NeedsArbitration(task, "Max test retries exceeded");
             }
             task.setStatus(TaskStatus.TEST_REVIEW_FAILED);
             task.setUpdatedAt(Instant.now());
             saveTask(task);
-            recordEvent(task, "REVIEW_ROUTE_TO_TEST_WRITER", "Reviewer identified test_issue, routing back to TestWriter");
+            recordEvent(task, "REVIEW_CLASSIFIED",
+                    "Reviewer classified as test_issue, routing back to TestWriter",
+                    buildReviewEventData(firstRejection, "test_issue", "TEST_WRITER"));
             return new ExecutionOutcome.Success(task);
+        }
+
+        if ("unclear".equals(category)) {
+            task.setStatus(TaskStatus.NEEDS_ARBITRATION);
+            task.setError("Reviewer classified feedback as unclear; requires human arbitration");
+            task.setUpdatedAt(Instant.now());
+            saveTask(task);
+            recordEvent(task, "REVIEW_CLASSIFIED",
+                    "Reviewer classified as unclear, routing to NEEDS_ARBITRATION",
+                    buildReviewEventData(firstRejection, "unclear", "NEEDS_ARBITRATION"));
+            return new ExecutionOutcome.NeedsArbitration(task, "Reviewer feedback unclear, needs arbitration");
         }
 
         task.setCodeRetryCount(task.getCodeRetryCount() + 1);
@@ -708,14 +731,18 @@ private ExecutionOutcome runTestWriting(Task task) {
             task.setError("Max code retries exceeded after Reviewer REQUEST_CHANGES");
             task.setUpdatedAt(Instant.now());
             saveTask(task);
-            recordEvent(task, "NEEDS_ARBITRATION", "Max code retries exceeded");
+            recordEvent(task, "REVIEW_CLASSIFIED",
+                    "Reviewer classified as implementation_issue, max code retries exceeded",
+                    buildReviewEventData(firstRejection, "implementation_issue", "NEEDS_ARBITRATION"));
             return new ExecutionOutcome.NeedsArbitration(task, "Max code retries exceeded");
         }
 
         task.setStatus(TaskStatus.REVIEW_FAILED);
         task.setUpdatedAt(Instant.now());
         saveTask(task);
-        recordEvent(task, "REVIEW_FAILED", "Reviewer requested changes (implementation_issue), routing back to Coder");
+        recordEvent(task, "REVIEW_CLASSIFIED",
+                "Reviewer classified as implementation_issue, routing back to Coder",
+                buildReviewEventData(firstRejection, "implementation_issue", "CODER"));
         return new ExecutionOutcome.Success(task);
     }
 
@@ -804,6 +831,35 @@ private ExecutionOutcome runTestWriting(Task task) {
         TaskEventEntity entity = TaskEventEntity.fromDomain(event);
         taskEventRepository.save(entity);
         log.info("TaskEvent: taskId={}, type={}, message={}", task.getId(), eventType, truncate(message, 200));
+    }
+
+    private void recordEvent(Task task, String eventType, String message, String dataJson) {
+        TaskEvent event = new TaskEvent(task.getId(), eventType, message, dataJson);
+        TaskEventEntity entity = TaskEventEntity.fromDomain(event);
+        taskEventRepository.save(entity);
+        log.info("TaskEvent: taskId={}, type={}, message={}", task.getId(), eventType, truncate(message, 200));
+    }
+
+    private String buildReviewEventData(ReviewerResult reviewerResult, @Nullable String category, @Nullable String route) {
+        String effectiveCategory = category != null ? category : (reviewerResult.category() != null ? reviewerResult.category() : "unclear");
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("category", effectiveCategory);
+        if (route != null) {
+            data.put("route", route);
+        }
+        data.put("reviewerId", reviewerResult.reviewerId());
+        data.put("verdict", reviewerResult.verdict().name());
+        String feedbackSnippet = reviewerResult.feedback();
+        if (feedbackSnippet != null && feedbackSnippet.length() > 500) {
+            feedbackSnippet = feedbackSnippet.substring(0, 500);
+        }
+        data.put("feedbackSnippet", feedbackSnippet);
+        try {
+            return OBJECT_MAPPER.writeValueAsString(data);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to serialize review event data", e);
+            return null;
+        }
     }
 
     private static String truncate(String s, int maxLen) {
