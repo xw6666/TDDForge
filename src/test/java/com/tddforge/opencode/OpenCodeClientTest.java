@@ -13,6 +13,8 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 class OpenCodeClientTest {
 
@@ -125,5 +127,101 @@ class OpenCodeClientTest {
         AgentRun run = client.run("task-6", "planner", createRequest("Test"));
 
         assertThat(run.exitCode()).isNegative();
+    }
+
+    @Test
+    void shouldTimeoutKillProcess() {
+        OpenCodeClient client = new OpenCodeClient(config);
+        client.setOpencodeBinary(scriptsDir + "/fake-opencode-sleep.sh");
+
+        OpenCodeRequest request = new OpenCodeRequest(
+                "test-model", worktreeDir, "Long running task",
+                null, null, null, Path.of("/tmp/test-opencode.json"), 1
+        );
+
+        long start = System.currentTimeMillis();
+        AgentRun run = client.run("task-timeout", "planner", request);
+        long elapsed = System.currentTimeMillis() - start;
+
+        assertThat(run.exitCode()).isEqualTo(-1);
+        assertThat(elapsed).isLessThan(10000);
+    }
+
+    @Test
+    void shouldKillTaskTerminateProcess() throws Exception {
+        OpenCodeClient client = new OpenCodeClient(config);
+        client.setOpencodeBinary(scriptsDir + "/fake-opencode-sleep.sh");
+
+        OpenCodeRequest request = new OpenCodeRequest(
+                "test-model", worktreeDir, "Task to be killed",
+                null, null, null, Path.of("/tmp/test-opencode.json"), 60
+        );
+
+        CompletableFuture<AgentRun> future = CompletableFuture.supplyAsync(
+                () -> client.run("task-kill", "planner", request)
+        );
+
+        Thread.sleep(500);
+        client.killTask("task-kill");
+
+        AgentRun run = future.get(10, TimeUnit.SECONDS);
+        assertThat(run.exitCode()).isNotZero();
+    }
+
+    @Test
+    void shouldInjectOpenCodeConfig() {
+        OpenCodeClient client = new OpenCodeClient(config);
+        client.setOpencodeBinary(scriptsDir + "/fake-opencode-env-check.sh");
+
+        AgentRun run = client.run("task-env", "planner", createRequest("Check env"));
+
+        assertThat(run.exitCode()).isEqualTo(0);
+        assertThat(run.output()).contains("OPENCODE_CONFIG=/tmp/test-opencode.json");
+    }
+
+    @Test
+    void shouldIncludeOptionalArgsInCommand() {
+        OpenCodeClient client = new OpenCodeClient(config);
+        client.setOpencodeBinary(scriptsDir + "/fake-opencode-args-check.sh");
+
+        OpenCodeRequest request = new OpenCodeRequest(
+                "test-model", worktreeDir, "test prompt",
+                "sess-123", "v1", "coder",
+                Path.of("/tmp/test-opencode.json"), 30
+        );
+
+        AgentRun run = client.run("task-args", "coder", request);
+
+        assertThat(run.exitCode()).isEqualTo(0);
+        assertThat(run.output()).contains("--session");
+        assertThat(run.output()).contains("sess-123");
+        assertThat(run.output()).contains("--variant");
+        assertThat(run.output()).contains("v1");
+        assertThat(run.output()).contains("--agent");
+        assertThat(run.output()).contains("coder");
+    }
+
+    @Test
+    void shouldPreserveOutputOnNonZeroExit() {
+        OpenCodeClient client = new OpenCodeClient(config);
+        config.setMaxContinues(0);
+        client.setOpencodeBinary(scriptsDir + "/fake-opencode-fail-with-output.sh");
+
+        AgentRun run = client.run("task-fail-output", "coder", createRequest("Failing task"));
+
+        assertThat(run.exitCode()).isNotZero();
+        assertThat(run.output()).contains("partial output before failure");
+        assertThat(run.output()).contains("stderr");
+        assertThat(run.output()).contains("something went wrong");
+    }
+
+    @Test
+    void shouldRecordDuration() {
+        OpenCodeClient client = new OpenCodeClient(config);
+        client.setOpencodeBinary(scriptsDir + "/fake-opencode-complete.sh");
+
+        AgentRun run = client.run("task-duration", "planner", createRequest("Quick task"));
+
+        assertThat(run.durationMs()).isGreaterThanOrEqualTo(0);
     }
 }
