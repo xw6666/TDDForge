@@ -17,20 +17,28 @@ public final class CoderAgent extends BaseAgent<CoderResult> {
 
     @Override
     protected PromptTemplateRegistry.Template getTemplate(AgentContext context) {
+        if (context.testPhaseFeedback() != null && !context.testPhaseFeedback().isBlank()) {
+            return PromptTemplateRegistry.Template.CODER_RETRY;
+        }
         return PromptTemplateRegistry.Template.CODER_IMPLEMENT;
     }
 
     @Override
     protected Map<String, String> getPromptVariables(AgentContext context) {
         Map<String, String> vars = new LinkedHashMap<>();
-        vars.put("title", context.title());
-        vars.put("description", context.description());
-        vars.put("test_output", context.testOutput() != null ? context.testOutput() : "");
-        vars.put("test_review_output", context.testReviewOutput() != null ? context.testReviewOutput() : "");
-        vars.put("dependency_context", context.dependencyContext() != null ? context.dependencyContext() : "");
-        vars.put("file_path", context.filePath() != null ? context.filePath() : "");
-        vars.put("line_number", context.lineNumber() != null ? context.lineNumber() : "");
-        vars.put("plan_output", context.planOutput() != null ? context.planOutput() : "");
+        if (context.testPhaseFeedback() != null && !context.testPhaseFeedback().isBlank()) {
+            vars.put("attempt", context.attempt() != null ? String.valueOf(context.attempt()) : "1");
+            vars.put("review_feedback", context.testPhaseFeedback());
+        } else {
+            vars.put("title", context.title());
+            vars.put("description", context.description());
+            vars.put("test_output", context.testOutput() != null ? context.testOutput() : "");
+            vars.put("test_review_output", context.testReviewOutput() != null ? context.testReviewOutput() : "");
+            vars.put("dependency_context", context.dependencyContext() != null ? context.dependencyContext() : "");
+            vars.put("file_path", context.filePath() != null ? context.filePath() : "");
+            vars.put("line_number", context.lineNumber() != null ? context.lineNumber() : "");
+            vars.put("plan_output", context.planOutput() != null ? context.planOutput() : "");
+        }
         return vars;
     }
 
