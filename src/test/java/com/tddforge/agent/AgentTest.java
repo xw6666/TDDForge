@@ -45,7 +45,9 @@ class AgentTest {
                 "src/main/Validator.java",
                 "42",
                 "",
-                "reviewer-1"
+                "reviewer-1",
+                null,
+                null
         );
     }
 
@@ -70,7 +72,9 @@ class AgentTest {
                 overrides.containsKey("filePath") ? (String) overrides.get("filePath") : base.filePath(),
                 overrides.containsKey("lineNumber") ? (String) overrides.get("lineNumber") : base.lineNumber(),
                 overrides.containsKey("dependencyContext") ? (String) overrides.get("dependencyContext") : base.dependencyContext(),
-                overrides.containsKey("reviewerId") ? (String) overrides.get("reviewerId") : base.reviewerId()
+                overrides.containsKey("reviewerId") ? (String) overrides.get("reviewerId") : base.reviewerId(),
+                overrides.containsKey("testPhaseFeedback") ? (String) overrides.get("testPhaseFeedback") : base.testPhaseFeedback(),
+                overrides.containsKey("attempt") ? (Integer) overrides.get("attempt") : base.attempt()
         );
     }
 
