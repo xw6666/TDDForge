@@ -98,11 +98,11 @@ class AgentOutputExtractorTest {
         void shouldHandlePlannerJsonEmbeddedInMarkdown() {
             String json = """
                     Here is my analysis:
-                    
+
                     ```json
                     {"complexity":"simple","split":false,"reason":"One-liner","plan":"Fix the typo"}
                     ```
-                    
+
                     This should be straightforward.
                     """;
             String output = wrapInNdjson(json);
@@ -139,6 +139,18 @@ class AgentOutputExtractorTest {
 
             assertThat(result.rawOutput()).isEqualTo(raw);
         }
+
+        @Test
+        void shouldExtractJsonWithBracesInsideStrings() {
+            String output = ndjsonWithText(
+                    "{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Has {braces} in reason\",\"plan\":\"Fix {the} bug\"}");
+
+            ExtractionResult<PlannerResult> result = extractor.extractPlannerResult(createRun(output));
+
+            assertThat(result.hasCriticalError()).isFalse();
+            assertThat(result.result().reason()).contains("{braces}");
+            assertThat(result.result().plan()).contains("{the}");
+        }
     }
 
     @Nested
@@ -149,13 +161,13 @@ class AgentOutputExtractorTest {
             String text = """
                     Test files changed:
                     - src/test/FooTest.java
-                    
+
                     Test command: `mvn test -pl module`
-                    
+
                     Result classification: PASS
-                    
+
                     Commit hash: abc1234
-                    
+
                     Behavior covered: Tests verify the new validation logic
                     """;
             String output = wrapInNdjson(text);
@@ -173,9 +185,9 @@ class AgentOutputExtractorTest {
         void shouldExtractExpectedRedClassification() {
             String text = """
                     Test command: `mvn test`
-                    
+
                     Result classification: EXPECTED_RED
-                    
+
                     The tests compile and run but fail because the behavior is not implemented yet.
                     """;
             String output = wrapInNdjson(text);
@@ -190,9 +202,9 @@ class AgentOutputExtractorTest {
         void shouldExtractInvalidClassification() {
             String text = """
                     Test command: `mvn test`
-                    
+
                     Result classification: INVALID
-                    
+
                     The tests cannot compile due to missing dependencies.
                     """;
             String output = wrapInNdjson(text);
@@ -207,7 +219,7 @@ class AgentOutputExtractorTest {
         void shouldReturnCriticalErrorWhenClassificationMissing() {
             String text = """
                     Test command: `mvn test`
-                    
+
                     The tests were written successfully.
                     """;
             String output = wrapInNdjson(text);
@@ -240,7 +252,7 @@ class AgentOutputExtractorTest {
                     - src/test/FooTest.java
                     - src/test/BarTest.java
                     - src/test/BazTest.java
-                    
+
                     Test command: `mvn test`
                     Result classification: PASS
                     """;
@@ -255,15 +267,15 @@ class AgentOutputExtractorTest {
         void shouldHandleExtraMarkdownFormatting() {
             String text = """
                     ## Test Results
-                    
+
                     Here's what I did:
-                    
+
                     **Test command:** `mvn test -pl module`
-                    
+
                     **Classification:** PASS
-                    
+
                     ---
-                    
+
                     > All tests pass.
                     """;
             String output = wrapInNdjson(text);
@@ -273,16 +285,138 @@ class AgentOutputExtractorTest {
             assertThat(result.hasCriticalError()).isFalse();
             assertThat(result.result().resultClassification()).isEqualTo("PASS");
         }
+
+        @Test
+        void shouldExtractTestCommandWithoutBackticks() {
+            String text = """
+                    I ran: mvn test -pl module -Dtest=FooTest
+
+                    Result classification: PASS
+                    """;
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<TestWriterResult> result = extractor.extractTestWriterResult(createRun("test_writer", output));
+
+            assertThat(result.hasCriticalError()).isFalse();
+            assertThat(result.result().testCommand()).contains("mvn test");
+        }
     }
 
     @Nested
     class TestReviewerExtraction {
 
         @Test
+        void shouldExtractApproveVerdictAndFeedback() {
+            String text = """
+                    APPROVE
+
+                    The tests are well-written and cover the expected behavior.
+                    """;
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<TestReviewerResult> result = extractor.extractTestReviewerResult(createRun("test_reviewer", output));
+
+            assertThat(result.hasCriticalError()).isFalse();
+            assertThat(result.result().verdict()).isEqualTo(ReviewVerdict.APPROVE);
+            assertThat(result.result().feedback()).contains("well-written");
+        }
+
+        @Test
+        void shouldExtractRequestChangesVerdictAndFeedback() {
+            String text = """
+                    REQUEST_CHANGES
+
+                    The tests are too weak and don't cover edge cases.
+                    """;
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<TestReviewerResult> result = extractor.extractTestReviewerResult(createRun("test_reviewer", output));
+
+            assertThat(result.hasCriticalError()).isFalse();
+            assertThat(result.result().verdict()).isEqualTo(ReviewVerdict.REQUEST_CHANGES);
+            assertThat(result.result().feedback()).contains("too weak");
+        }
+
+        @Test
+        void shouldReturnCriticalErrorWhenVerdictMissing() {
+            String text = """
+                    The tests look okay but I have some concerns.
+                    """;
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<TestReviewerResult> result = extractor.extractTestReviewerResult(createRun("test_reviewer", output));
+
+            assertThat(result.hasCriticalError()).isTrue();
+            assertThat(result.criticalError()).contains("verdict");
+        }
+
+        @Test
+        void shouldUseFirstLineVerdictOnly() {
+            String text = """
+                    APPROVE
+
+                    Actually, I think there are issues. REQUEST_CHANGES would be more appropriate.
+                    """;
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<TestReviewerResult> result = extractor.extractTestReviewerResult(createRun("test_reviewer", output));
+
+            assertThat(result.result().verdict()).isEqualTo(ReviewVerdict.APPROVE);
+        }
+
+        @Test
+        void shouldHandleVerdictWithLeadingWhitespace() {
+            String text = """
+
+
+                    REQUEST_CHANGES
+
+                    Need more coverage.
+                    """;
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<TestReviewerResult> result = extractor.extractTestReviewerResult(createRun("test_reviewer", output));
+
+            assertThat(result.result().verdict()).isEqualTo(ReviewVerdict.REQUEST_CHANGES);
+        }
+
+        @Test
+        void shouldHandleBlankFeedbackWithWarning() {
+            String text = "APPROVE";
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<TestReviewerResult> result = extractor.extractTestReviewerResult(createRun("test_reviewer", output));
+
+            assertThat(result.hasCriticalError()).isFalse();
+            assertThat(result.result().verdict()).isEqualTo(ReviewVerdict.APPROVE);
+            assertThat(result.result().feedback()).isEqualTo("(no feedback provided)");
+            assertThat(result.hasWarnings()).isTrue();
+            assertThat(result.warnings()).anySatisfy(w -> assertThat(w).contains("feedback"));
+        }
+
+        @Test
+        void shouldRejectVerdictLikeApproveChanges() {
+            String text = """
+                    APPROVE_CHANGES
+
+                    This looks mostly fine.
+                    """;
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<TestReviewerResult> result = extractor.extractTestReviewerResult(createRun("test_reviewer", output));
+
+            assertThat(result.hasCriticalError()).isTrue();
+        }
+    }
+
+    @Nested
+    class ReviewVerdictOnlyExtraction {
+
+        @Test
         void shouldExtractApproveVerdict() {
             String text = """
                     APPROVE
-                    
+
                     The tests are well-written and cover the expected behavior.
                     """;
             String output = wrapInNdjson(text);
@@ -297,7 +431,7 @@ class AgentOutputExtractorTest {
         void shouldExtractRequestChangesVerdict() {
             String text = """
                     REQUEST_CHANGES
-                    
+
                     The tests are too weak and don't cover edge cases.
                     """;
             String output = wrapInNdjson(text);
@@ -325,8 +459,8 @@ class AgentOutputExtractorTest {
         void shouldUseFirstLineVerdictOnly() {
             String text = """
                     APPROVE
-                    
-                    Actually, I think there are issues. REQUEST_CHANGES would be more appropriate.
+
+                    Actually, REQUEST_CHANGES would be more appropriate.
                     """;
             String output = wrapInNdjson(text);
 
@@ -338,10 +472,10 @@ class AgentOutputExtractorTest {
         @Test
         void shouldHandleVerdictWithLeadingWhitespace() {
             String text = """
-                    
-                    
+
+
                     REQUEST_CHANGES
-                    
+
                     Need more coverage.
                     """;
             String output = wrapInNdjson(text);
@@ -349,6 +483,34 @@ class AgentOutputExtractorTest {
             ExtractionResult<ReviewVerdict> result = extractor.extractReviewVerdict(createRun("test_reviewer", output));
 
             assertThat(result.result()).isEqualTo(ReviewVerdict.REQUEST_CHANGES);
+        }
+
+        @Test
+        void shouldRejectApproveChangesAsInvalidVerdict() {
+            String text = """
+                    APPROVE_CHANGES
+
+                    Looks fine.
+                    """;
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<ReviewVerdict> result = extractor.extractReviewVerdict(createRun("test_reviewer", output));
+
+            assertThat(result.hasCriticalError()).isTrue();
+        }
+
+        @Test
+        void shouldRejectRequestChangesWithExtraText() {
+            String text = """
+                    REQUEST_CHANGES please
+
+                    Fix the issues.
+                    """;
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<ReviewVerdict> result = extractor.extractReviewVerdict(createRun("test_reviewer", output));
+
+            assertThat(result.hasCriticalError()).isTrue();
         }
     }
 
@@ -359,14 +521,14 @@ class AgentOutputExtractorTest {
         void shouldExtractStandardCoderOutput() {
             String text = """
                     Implementation summary: Updated the handler to validate input
-                    
+
                     Files changed:
                     - src/main/Foo.java
                     - src/main/Bar.java
-                    
+
                     Test command: `mvn test`
                     Test result: All tests passed
-                    
+
                     Commit hash: def5678
                     """;
             String output = wrapInNdjson(text);
@@ -398,7 +560,7 @@ class AgentOutputExtractorTest {
         void shouldExtractFilesFromInlineBackticks() {
             String text = """
                     Implementation summary: Fixed the bug in `src/main/service/Handler.java` and `src/test/HandlerTest.java`.
-                    
+
                     Test command: `mvn test`
                     Test result: All tests passed
                     """;
@@ -414,12 +576,12 @@ class AgentOutputExtractorTest {
         void shouldHandleExtraMarkdown() {
             String text = """
                     ## Implementation Summary
-                    
+
                     Fixed the validation issue.
-                    
+
                     ### Files Changed
                     - `src/main/Validator.java`
-                    
+
                     ### Test Results
                     Test command: `mvn test`
                     Pass/fail result: All tests passed
@@ -440,7 +602,7 @@ class AgentOutputExtractorTest {
         void shouldExtractApproveReviewerResult() {
             String text = """
                     APPROVE
-                    
+
                     The implementation looks good. All tests pass.
                     """;
             String output = wrapInNdjson(text);
@@ -458,7 +620,7 @@ class AgentOutputExtractorTest {
         void shouldClassifyTestIssue() {
             String text = """
                     REQUEST_CHANGES
-                    
+
                     The tests are too weak and don't cover edge cases. Test coverage is insufficient.
                     """;
             String output = wrapInNdjson(text);
@@ -474,7 +636,7 @@ class AgentOutputExtractorTest {
         void shouldClassifyImplementationIssue() {
             String text = """
                     REQUEST_CHANGES
-                    
+
                     The implementation has a bug in the error handling logic.
                     """;
             String output = wrapInNdjson(text);
@@ -490,7 +652,7 @@ class AgentOutputExtractorTest {
         void shouldClassifyUnclearWhenNoKeywords() {
             String text = """
                     REQUEST_CHANGES
-                    
+
                     Needs improvement.
                     """;
             String output = wrapInNdjson(text);
@@ -518,7 +680,7 @@ class AgentOutputExtractorTest {
         void shouldUseFirstLineVerdictOnly() {
             String text = """
                     REQUEST_CHANGES
-                    
+
                     The implementation is broken. But wait, maybe APPROVE is better since tests pass.
                     """;
             String output = wrapInNdjson(text);
@@ -533,7 +695,7 @@ class AgentOutputExtractorTest {
         void shouldClassifyAssertionIssueAsTestIssue() {
             String text = """
                     REQUEST_CHANGES
-                    
+
                     The assertions in the test are wrong. The fixture needs to be fixed.
                     """;
             String output = wrapInNdjson(text);
@@ -551,6 +713,36 @@ class AgentOutputExtractorTest {
                     createRun("reviewer", raw), "reviewer-1");
 
             assertThat(result.rawOutput()).isEqualTo(raw);
+        }
+
+        @Test
+        void shouldHandleBlankFeedbackWithWarning() {
+            String text = "REQUEST_CHANGES";
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+
+            assertThat(result.hasCriticalError()).isFalse();
+            assertThat(result.result().verdict()).isEqualTo(ReviewVerdict.REQUEST_CHANGES);
+            assertThat(result.result().feedback()).isEqualTo("(no feedback provided)");
+            assertThat(result.result().category()).isEqualTo("unclear");
+            assertThat(result.hasWarnings()).isTrue();
+        }
+
+        @Test
+        void shouldRejectApproveChangesAsInvalidVerdict() {
+            String text = """
+                    APPROVE_CHANGES
+
+                    Looks fine.
+                    """;
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+
+            assertThat(result.hasCriticalError()).isTrue();
         }
     }
 }

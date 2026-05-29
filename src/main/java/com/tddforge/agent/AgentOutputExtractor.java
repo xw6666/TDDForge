@@ -21,12 +21,8 @@ public class AgentOutputExtractor {
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-    private static final Pattern JSON_PATTERN = Pattern.compile("\\{[^{}]*(?:\\{[^{}]*\\}[^{}]*)*\\}", Pattern.DOTALL);
     private static final Pattern FILE_LIST_PATTERN = Pattern.compile(
             "(?:test files? changed|files? (?:changed|modified|created|added)):?\\s*\\n((?:\\s*[-*]?\\s*`?[^\\n]+`?\\s*\\n?)+)",
-            Pattern.CASE_INSENSITIVE);
-    private static final Pattern TEST_COMMAND_PATTERN = Pattern.compile(
-            "`([^`]+)`",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern CLASSIFICATION_PATTERN = Pattern.compile(
             "\\b(PASS|EXPECTED_RED|INVALID)\\b", Pattern.CASE_INSENSITIVE);
@@ -42,6 +38,8 @@ public class AgentOutputExtractor {
             "weak test", "invalid test", "test coverage", "test was weakened",
             "skipped test", "fixture", "test fixture"
     );
+
+    private static final String DEFAULT_FEEDBACK = "(no feedback provided)";
 
     public ExtractionResult<PlannerResult> extractPlannerResult(AgentRun run) {
         String rawOutput = run.output();
@@ -112,6 +110,36 @@ public class AgentOutputExtractor {
         }
     }
 
+    public ExtractionResult<TestReviewerResult> extractTestReviewerResult(AgentRun run) {
+        String rawOutput = run.output();
+        String text = extractFinalText(rawOutput);
+        List<String> warnings = new ArrayList<>();
+
+        String verdictStr = extractFirstLineVerdict(text);
+        if (verdictStr == null) {
+            return ExtractionResult.criticalError("TestReviewer verdict (APPROVE/REQUEST_CHANGES) not found on first line", rawOutput);
+        }
+
+        ReviewVerdict verdict;
+        try {
+            verdict = ReviewVerdict.fromString(verdictStr);
+        } catch (Exception e) {
+            return ExtractionResult.criticalError("Invalid TestReviewer verdict: " + verdictStr, rawOutput);
+        }
+
+        String feedback = extractFeedbackBody(text);
+        if (feedback.isBlank()) {
+            warnings.add("TestReviewer feedback body is empty");
+            feedback = DEFAULT_FEEDBACK;
+        }
+
+        TestReviewerResult result = new TestReviewerResult(verdict, feedback);
+        if (warnings.isEmpty()) {
+            return ExtractionResult.success(result, rawOutput);
+        }
+        return ExtractionResult.successWithWarnings(result, warnings, rawOutput);
+    }
+
     public ExtractionResult<CoderResult> extractCoderResult(AgentRun run) {
         String rawOutput = run.output();
         String text = extractFinalText(rawOutput);
@@ -147,6 +175,7 @@ public class AgentOutputExtractor {
     public ExtractionResult<ReviewerResult> extractReviewerResult(AgentRun run, String reviewerId) {
         String rawOutput = run.output();
         String text = extractFinalText(rawOutput);
+        List<String> warnings = new ArrayList<>();
 
         String verdictStr = extractFirstLineVerdict(text);
         if (verdictStr == null) {
@@ -161,10 +190,18 @@ public class AgentOutputExtractor {
         }
 
         String feedback = extractFeedbackBody(text);
+        if (feedback.isBlank()) {
+            warnings.add("Reviewer feedback body is empty");
+            feedback = DEFAULT_FEEDBACK;
+        }
+
         String category = classifyReviewerFeedback(verdict, feedback);
 
         ReviewerResult result = new ReviewerResult(reviewerId, verdict, feedback, category);
-        return ExtractionResult.success(result, rawOutput);
+        if (warnings.isEmpty()) {
+            return ExtractionResult.success(result, rawOutput);
+        }
+        return ExtractionResult.successWithWarnings(result, warnings, rawOutput);
     }
 
     private String extractFinalText(String rawOutput) {
@@ -181,17 +218,30 @@ public class AgentOutputExtractor {
         if (text == null || text.isBlank()) {
             return null;
         }
-        Matcher matcher = JSON_PATTERN.matcher(text);
         String bestMatch = null;
-        while (matcher.find()) {
-            String candidate = matcher.group();
-            try {
-                MAPPER.readValue(candidate, Map.class);
-                if (bestMatch == null || candidate.length() > bestMatch.length()) {
-                    bestMatch = candidate;
+        int depth = 0;
+        int start = -1;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '{') {
+                if (depth == 0) {
+                    start = i;
                 }
-            } catch (JsonProcessingException e) {
-                // not valid JSON, skip
+                depth++;
+            } else if (c == '}') {
+                depth--;
+                if (depth == 0 && start >= 0) {
+                    String candidate = text.substring(start, i + 1);
+                    try {
+                        MAPPER.readValue(candidate, Map.class);
+                        if (bestMatch == null || candidate.length() > bestMatch.length()) {
+                            bestMatch = candidate;
+                        }
+                    } catch (JsonProcessingException e) {
+                        // not valid JSON, skip
+                    }
+                    start = -1;
+                }
             }
         }
         return bestMatch;
@@ -236,13 +286,38 @@ public class AgentOutputExtractor {
     @Nullable
     private String extractTestCommand(String text) {
         if (text == null) return null;
-        Matcher matcher = TEST_COMMAND_PATTERN.matcher(text);
-        while (matcher.find()) {
-            String candidate = matcher.group(1).trim();
+
+        // First: look for "test command: <value>" or similar labeled patterns
+        Pattern labeledPattern = Pattern.compile(
+                "(?:test command|command(?:s)? run)(?:\\s*[:=])?[ \\t]*`?([^\\n`]+)`?",
+                Pattern.CASE_INSENSITIVE);
+        Matcher labeledMatcher = labeledPattern.matcher(text);
+        if (labeledMatcher.find()) {
+            String candidate = labeledMatcher.group(1).trim();
+            if (!candidate.isEmpty()) {
+                return candidate;
+            }
+        }
+
+        // Second: look for backtick-enclosed commands with test-related keywords
+        Pattern backtickPattern = Pattern.compile("`([^`]+)`", Pattern.CASE_INSENSITIVE);
+        Matcher backtickMatcher = backtickPattern.matcher(text);
+        while (backtickMatcher.find()) {
+            String candidate = backtickMatcher.group(1).trim();
             if (isLikelyTestCommand(candidate)) {
                 return candidate;
             }
         }
+
+        // Third: look for bare test runner commands
+        Pattern barePattern = Pattern.compile(
+                "(?:(?:mvn|gradle|npm|npx|pytest|jest|cargo|dotnet|make)\\s+[^\\n]{1,100})",
+                Pattern.CASE_INSENSITIVE);
+        Matcher bareMatcher = barePattern.matcher(text);
+        if (bareMatcher.find()) {
+            return bareMatcher.group().trim();
+        }
+
         return null;
     }
 
@@ -267,13 +342,13 @@ public class AgentOutputExtractor {
     private String extractTestSummary(String text) {
         if (text == null) return null;
         Pattern[] patterns = {
-                Pattern.compile("(?:behavior covered|test(?:s)? (?:cover|description|summary)|what (?:the )?tests? (?:cover|do)):?\\s*\\n?(.{10,200})", Pattern.CASE_INSENSITIVE),
-                Pattern.compile("(?:## (?:Behavior|Test|Description|Summary))\\s*\\n(.{10,200})", Pattern.CASE_INSENSITIVE)
+                Pattern.compile("(?:behavior covered|test(?:s)? (?:cover|description|summary)|what (?:the )?tests? (?:cover|do)):?\\s*\\n?(.{10,})", Pattern.CASE_INSENSITIVE),
+                Pattern.compile("(?:## (?:Behavior|Test|Description|Summary))\\s*\\n(.{10,})", Pattern.CASE_INSENSITIVE)
         };
         for (Pattern p : patterns) {
             Matcher m = p.matcher(text);
             if (m.find()) {
-                return m.group(1).trim();
+                return truncateAtSentenceBoundary(m.group(1).trim(), 1000);
             }
         }
         return null;
@@ -283,16 +358,28 @@ public class AgentOutputExtractor {
     private String extractImplementationSummary(String text) {
         if (text == null) return null;
         Pattern[] patterns = {
-                Pattern.compile("(?:implementation summary|summary|what (?:i|was) (?:did|implemented|changed)):?\\s*\\n?(.{10,500})", Pattern.CASE_INSENSITIVE),
-                Pattern.compile("(?:## (?:Implementation |)Summary)\\s*\\n(.{10,500})", Pattern.CASE_INSENSITIVE)
+                Pattern.compile("(?:implementation summary|summary|what (?:i|was) (?:did|implemented|changed)):?\\s*\\n?(.{10,})", Pattern.CASE_INSENSITIVE),
+                Pattern.compile("(?:## (?:Implementation |)Summary)\\s*\\n(.{10,})", Pattern.CASE_INSENSITIVE)
         };
         for (Pattern p : patterns) {
             Matcher m = p.matcher(text);
             if (m.find()) {
-                return m.group(1).trim();
+                return truncateAtSentenceBoundary(m.group(1).trim(), 2000);
             }
         }
         return null;
+    }
+
+    private String truncateAtSentenceBoundary(String text, int maxLen) {
+        if (text.length() <= maxLen) return text;
+        String truncated = text.substring(0, maxLen);
+        int lastPeriod = truncated.lastIndexOf('.');
+        int lastNewline = truncated.lastIndexOf('\n');
+        int boundary = Math.max(lastPeriod, lastNewline);
+        if (boundary > maxLen / 2) {
+            return truncated.substring(0, boundary + 1).trim();
+        }
+        return truncated.trim();
     }
 
     private List<String> extractFiles(String text) {
@@ -352,8 +439,6 @@ public class AgentOutputExtractor {
             String upper = trimmed.toUpperCase();
             if (upper.equals("APPROVE")) return "APPROVE";
             if (upper.equals("REQUEST_CHANGES")) return "REQUEST_CHANGES";
-            if (upper.startsWith("APPROVE")) return "APPROVE";
-            if (upper.startsWith("REQUEST_CHANGES")) return "REQUEST_CHANGES";
             break;
         }
         return null;
@@ -368,8 +453,7 @@ public class AgentOutputExtractor {
             String trimmed = line.trim();
             if (!foundVerdict) {
                 String upper = trimmed.toUpperCase();
-                if (upper.equals("APPROVE") || upper.equals("REQUEST_CHANGES") ||
-                        upper.startsWith("APPROVE") || upper.startsWith("REQUEST_CHANGES")) {
+                if (upper.equals("APPROVE") || upper.equals("REQUEST_CHANGES")) {
                     foundVerdict = true;
                     continue;
                 }
@@ -388,7 +472,7 @@ public class AgentOutputExtractor {
         if (verdict == ReviewVerdict.APPROVE) {
             return null;
         }
-        if (feedback == null || feedback.isBlank()) {
+        if (feedback == null || feedback.isBlank() || feedback.equals(DEFAULT_FEEDBACK)) {
             return "unclear";
         }
         String lower = feedback.toLowerCase();
