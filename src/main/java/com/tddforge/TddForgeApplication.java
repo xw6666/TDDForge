@@ -1,12 +1,12 @@
-package com.opengiraffe;
+package com.tddforge;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class OpenGiraffeApplication {
+public class TddForgeApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(OpenGiraffeApplication.class, args);
+        SpringApplication.run(TddForgeApplication.class, args);
     }
 }

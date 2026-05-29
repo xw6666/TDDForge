@@ -11,11 +11,11 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.opengiraffe</groupId>
-    <artifactId>opengiraffe</artifactId>
+    <groupId>com.tddforge</groupId>
+    <artifactId>tddforge</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>OpenGiraffe</name>
-    <description>Auto R&amp;D Task Orchestration Daemon</description>
+    <name>TDDForge</name>
+    <description>TDD-based Auto R&amp;D Task Orchestration Daemon</description>
 
     <properties>
         <java.version>21</java.version>

@@ -1,4 +1,4 @@
-package com.opengiraffe;
+package com.tddforge;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,7 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
-class OpenGiraffeApplicationTests {
+class TddForgeApplicationTests {
 
     @Autowired
     private MockMvc mockMvc;

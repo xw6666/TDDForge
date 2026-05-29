@@ -1,6 +1,6 @@
-# OpenGiraffe Java
+# TDDForge
 
-Auto R&D Task Orchestration Daemon built with Java 21 + Spring Boot 3 + MySQL 8.
+TDD-based Auto R&D Task Orchestration Daemon built with Java 21 + Spring Boot 3 + MySQL 8.
 
 ## Prerequisites
 
@@ -20,16 +20,16 @@ mvn clean test
 mvn spring-boot:run
 ```
 
-The application starts on port 8778 by default. Verify it is running:
+The application starts on port 3550 by default. Verify it is running:
 
 ```bash
-curl http://localhost:8778/actuator/health
+curl http://localhost:3550/actuator/health
 ```
 
 ## Package Structure
 
 ```
-com.opengiraffe
+com.tddforge
   config
   domain
   persistence
