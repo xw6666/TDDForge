@@ -44,7 +44,8 @@ class AgentTest {
                 "",
                 "src/main/Validator.java",
                 "42",
-                ""
+                "",
+                "reviewer-1"
         );
     }
 
@@ -68,7 +69,8 @@ class AgentTest {
                 overrides.containsKey("priorRejections") ? (String) overrides.get("priorRejections") : base.priorRejections(),
                 overrides.containsKey("filePath") ? (String) overrides.get("filePath") : base.filePath(),
                 overrides.containsKey("lineNumber") ? (String) overrides.get("lineNumber") : base.lineNumber(),
-                overrides.containsKey("dependencyContext") ? (String) overrides.get("dependencyContext") : base.dependencyContext()
+                overrides.containsKey("dependencyContext") ? (String) overrides.get("dependencyContext") : base.dependencyContext(),
+                overrides.containsKey("reviewerId") ? (String) overrides.get("reviewerId") : base.reviewerId()
         );
     }
 
@@ -78,6 +80,14 @@ class AgentTest {
             map.put((String) keysAndValues[i], keysAndValues[i + 1]);
         }
         return map;
+    }
+
+    private String wrapInNdjson(String text) {
+        return """
+                {"type":"step_start","step_start":{"type":"thinking"}}
+                {"type":"text","text":"%s"}
+                {"type":"step_finish","step_finish":{"reason":"stop"}}
+                """.formatted(text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n"));
     }
 
     @Nested
@@ -116,18 +126,24 @@ class AgentTest {
         }
 
         @Test
-        void shouldPassAgentRunToExtractor() {
-            AgentRun fakeRun = new AgentRun(
+        void shouldReturnAgentRunWithExtractionResult() {
+            String plannerOutput = wrapInNdjson(
+                    "{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Simple scope\",\"plan\":\"Fix the bug\"}");
+            testClient.setNextResult(new AgentRun(
                     "run-1", "task-1", "planner", "test-model",
-                    null, null, "prompt", "output",
+                    null, null, "prompt", plannerOutput,
                     0, 100L, null, 0, Instant.now()
-            );
-            testClient.setNextResult(fakeRun);
+            ));
 
             PlannerAgent agent = new PlannerAgent(testClient, registry, extractor);
-            AgentRun result = agent.run(createContext());
+            AgentResult<PlannerResult> result = agent.run(createContext());
 
-            assertThat(result).isSameAs(fakeRun);
+            assertThat(result.agentRun()).isNotNull();
+            assertThat(result.extractionResult()).isNotNull();
+            assertThat(result.extractionResult().hasCriticalError()).isFalse();
+            assertThat(result.extractionResult().result()).isNotNull();
+            assertThat(result.extractionResult().result().complexity()).isEqualTo("medium");
+            assertThat(result.extractionResult().result().split()).isFalse();
         }
 
         @Test
@@ -205,18 +221,23 @@ class AgentTest {
         }
 
         @Test
-        void shouldPassAgentRunToExtractor() {
-            AgentRun fakeRun = new AgentRun(
+        void shouldReturnAgentRunWithExtractionResult() {
+            String testWriterOutput = wrapInNdjson(
+                    "Test files changed:\n- src/test/FooTest.java\n\nTest command: `mvn test`\n\nResult classification: PASS\n\nBehavior covered: Tests verify validation\n\nCommit hash: abc1234");
+            testClient.setNextResult(new AgentRun(
                     "run-2", "task-1", "test_writer", "test-model",
-                    null, null, "prompt", "output",
+                    null, null, "prompt", testWriterOutput,
                     0, 100L, null, 0, Instant.now()
-            );
-            testClient.setNextResult(fakeRun);
+            ));
 
             TestWriterAgent agent = new TestWriterAgent(testClient, registry, extractor);
-            AgentRun result = agent.run(createContext());
+            AgentResult<TestWriterResult> result = agent.run(createContext());
 
-            assertThat(result).isSameAs(fakeRun);
+            assertThat(result.agentRun()).isNotNull();
+            assertThat(result.extractionResult()).isNotNull();
+            assertThat(result.extractionResult().hasCriticalError()).isFalse();
+            assertThat(result.extractionResult().result()).isNotNull();
+            assertThat(result.extractionResult().result().resultClassification()).isEqualTo("PASS");
         }
 
         @Test
@@ -276,18 +297,22 @@ class AgentTest {
         }
 
         @Test
-        void shouldPassAgentRunToExtractor() {
-            AgentRun fakeRun = new AgentRun(
+        void shouldReturnAgentRunWithExtractionResult() {
+            String reviewOutput = wrapInNdjson("APPROVE\n\nThe tests are well-written and cover expected behavior.");
+            testClient.setNextResult(new AgentRun(
                     "run-3", "task-1", "test_reviewer", "test-model",
-                    null, null, "prompt", "APPROVE\nGood tests.",
+                    null, null, "prompt", reviewOutput,
                     0, 100L, null, 0, Instant.now()
-            );
-            testClient.setNextResult(fakeRun);
+            ));
 
             TestReviewerAgent agent = new TestReviewerAgent(testClient, registry, extractor);
-            AgentRun result = agent.run(createContext());
+            AgentResult<TestReviewerResult> result = agent.run(createContext());
 
-            assertThat(result).isSameAs(fakeRun);
+            assertThat(result.agentRun()).isNotNull();
+            assertThat(result.extractionResult()).isNotNull();
+            assertThat(result.extractionResult().hasCriticalError()).isFalse();
+            assertThat(result.extractionResult().result()).isNotNull();
+            assertThat(result.extractionResult().result().verdict()).isEqualTo(ReviewVerdict.APPROVE);
         }
 
         @Test
@@ -350,18 +375,23 @@ class AgentTest {
         }
 
         @Test
-        void shouldPassAgentRunToExtractor() {
-            AgentRun fakeRun = new AgentRun(
+        void shouldReturnAgentRunWithExtractionResult() {
+            String coderOutput = wrapInNdjson(
+                    "Implementation summary: Updated validator\n\nFiles changed:\n- src/main/Validator.java\n\nTest command: `mvn test`\nTest result: All tests passed\n\nCommit hash: def5678");
+            testClient.setNextResult(new AgentRun(
                     "run-4", "task-1", "coder", "test-model",
-                    null, null, "prompt", "output",
+                    null, null, "prompt", coderOutput,
                     0, 100L, null, 0, Instant.now()
-            );
-            testClient.setNextResult(fakeRun);
+            ));
 
             CoderAgent agent = new CoderAgent(testClient, registry, extractor);
-            AgentRun result = agent.run(createContext());
+            AgentResult<CoderResult> result = agent.run(createContext());
 
-            assertThat(result).isSameAs(fakeRun);
+            assertThat(result.agentRun()).isNotNull();
+            assertThat(result.extractionResult()).isNotNull();
+            assertThat(result.extractionResult().hasCriticalError()).isFalse();
+            assertThat(result.extractionResult().result()).isNotNull();
+            assertThat(result.extractionResult().result().summary()).contains("Updated validator");
         }
 
         @Test
@@ -428,18 +458,39 @@ class AgentTest {
         }
 
         @Test
-        void shouldPassAgentRunToExtractor() {
-            AgentRun fakeRun = new AgentRun(
+        void shouldReturnAgentRunWithExtractionResult() {
+            String reviewOutput = wrapInNdjson("APPROVE\n\nThe implementation looks good. All tests pass.");
+            testClient.setNextResult(new AgentRun(
                     "run-5", "task-1", "reviewer", "test-model",
-                    null, null, "prompt", "APPROVE\nLGTM",
+                    null, null, "prompt", reviewOutput,
                     0, 100L, null, 0, Instant.now()
-            );
-            testClient.setNextResult(fakeRun);
+            ));
 
             ReviewerAgent agent = new ReviewerAgent(testClient, registry, extractor);
-            AgentRun result = agent.run(createContext());
+            AgentResult<ReviewerResult> result = agent.run(createContext());
 
-            assertThat(result).isSameAs(fakeRun);
+            assertThat(result.agentRun()).isNotNull();
+            assertThat(result.extractionResult()).isNotNull();
+            assertThat(result.extractionResult().hasCriticalError()).isFalse();
+            assertThat(result.extractionResult().result()).isNotNull();
+            assertThat(result.extractionResult().result().verdict()).isEqualTo(ReviewVerdict.APPROVE);
+            assertThat(result.extractionResult().result().reviewerId()).isEqualTo("reviewer-1");
+        }
+
+        @Test
+        void shouldUseReviewerIdFromContext() {
+            String reviewOutput = wrapInNdjson("APPROVE\n\nLooks good.");
+            testClient.setNextResult(new AgentRun(
+                    "run-6", "task-1", "reviewer", "test-model",
+                    null, null, "prompt", reviewOutput,
+                    0, 100L, null, 0, Instant.now()
+            ));
+
+            AgentContext ctx = createContext(withNulls("reviewerId", "custom-reviewer-42"));
+            ReviewerAgent agent = new ReviewerAgent(testClient, registry, extractor);
+            AgentResult<ReviewerResult> result = agent.run(ctx);
+
+            assertThat(result.extractionResult().result().reviewerId()).isEqualTo("custom-reviewer-42");
         }
 
         @Test
@@ -472,7 +523,7 @@ class AgentTest {
         void allAgentsShouldForwardWorktreePath() {
             AgentContext ctx = createContext();
 
-            for (var agent : new Agent[]{
+            for (var agent : new Agent<?>[]{
                     new PlannerAgent(testClient, registry, extractor),
                     new TestWriterAgent(testClient, registry, extractor),
                     new TestReviewerAgent(testClient, registry, extractor),
@@ -490,7 +541,7 @@ class AgentTest {
         void allAgentsShouldForwardTimeout() {
             AgentContext ctx = createContext();
 
-            for (var agent : new Agent[]{
+            for (var agent : new Agent<?>[]{
                     new PlannerAgent(testClient, registry, extractor),
                     new TestWriterAgent(testClient, registry, extractor),
                     new TestReviewerAgent(testClient, registry, extractor),
@@ -508,7 +559,7 @@ class AgentTest {
         void allAgentsShouldRenderPromptsWithoutUnresolvedPlaceholders() {
             AgentContext ctx = createContext();
 
-            for (var agent : new Agent[]{
+            for (var agent : new Agent<?>[]{
                     new PlannerAgent(testClient, registry, extractor),
                     new TestWriterAgent(testClient, registry, extractor),
                     new TestReviewerAgent(testClient, registry, extractor),
@@ -519,6 +570,24 @@ class AgentTest {
                 agent.run(ctx);
                 TestOpenCodeClient.CapturedCall call = testClient.getLastCall();
                 assertThat(call.request().prompt()).doesNotContain("{{");
+            }
+        }
+
+        @Test
+        void allAgentsShouldReturnNonNullExtractionResults() {
+            AgentContext ctx = createContext();
+
+            for (var agent : new Agent<?>[]{
+                    new PlannerAgent(testClient, registry, extractor),
+                    new TestWriterAgent(testClient, registry, extractor),
+                    new TestReviewerAgent(testClient, registry, extractor),
+                    new CoderAgent(testClient, registry, extractor),
+                    new ReviewerAgent(testClient, registry, extractor)
+            }) {
+                testClient.getCapturedCalls().clear();
+                AgentResult<?> result = agent.run(ctx);
+                assertThat(result.extractionResult()).isNotNull();
+                assertThat(result.agentRun()).isNotNull();
             }
         }
     }

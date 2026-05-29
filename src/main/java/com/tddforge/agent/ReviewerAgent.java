@@ -1,24 +1,20 @@
 package com.tddforge.agent;
 
 import com.tddforge.domain.AgentRun;
+import com.tddforge.domain.ReviewerResult;
 import com.tddforge.opencode.OpenCodeClient;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-public final class ReviewerAgent extends BaseAgent {
+public final class ReviewerAgent extends BaseAgent<ReviewerResult> {
+
+    private static final String DEFAULT_REVIEWER_ID = "reviewer-1";
 
     public ReviewerAgent(OpenCodeClient openCodeClient,
                          PromptTemplateRegistry promptRegistry,
                          AgentOutputExtractor outputExtractor) {
         super(openCodeClient, promptRegistry, outputExtractor);
-    }
-
-    @Override
-    public AgentRun run(AgentContext context) {
-        AgentRun agentRun = super.run(context);
-        outputExtractor.extractReviewerResult(agentRun, "reviewer-1");
-        return agentRun;
     }
 
     @Override
@@ -41,5 +37,13 @@ public final class ReviewerAgent extends BaseAgent {
     @Override
     protected String getAgentType() {
         return "reviewer";
+    }
+
+    @Override
+    protected ExtractionResult<ReviewerResult> extractResult(AgentRun agentRun, AgentContext context) {
+        String reviewerId = context.reviewerId() != null && !context.reviewerId().isBlank()
+                ? context.reviewerId()
+                : DEFAULT_REVIEWER_ID;
+        return outputExtractor.extractReviewerResult(agentRun, reviewerId);
     }
 }

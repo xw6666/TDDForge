@@ -6,19 +6,12 @@ import com.tddforge.opencode.OpenCodeClient;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-public final class TestReviewerAgent extends BaseAgent {
+public final class TestReviewerAgent extends BaseAgent<TestReviewerResult> {
 
     public TestReviewerAgent(OpenCodeClient openCodeClient,
                              PromptTemplateRegistry promptRegistry,
                              AgentOutputExtractor outputExtractor) {
         super(openCodeClient, promptRegistry, outputExtractor);
-    }
-
-    @Override
-    public AgentRun run(AgentContext context) {
-        AgentRun agentRun = super.run(context);
-        outputExtractor.extractTestReviewerResult(agentRun);
-        return agentRun;
     }
 
     @Override
@@ -39,5 +32,10 @@ public final class TestReviewerAgent extends BaseAgent {
     @Override
     protected String getAgentType() {
         return "test_reviewer";
+    }
+
+    @Override
+    protected ExtractionResult<TestReviewerResult> extractResult(AgentRun agentRun, AgentContext context) {
+        return outputExtractor.extractTestReviewerResult(agentRun);
     }
 }

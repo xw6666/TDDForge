@@ -1,24 +1,18 @@
 package com.tddforge.agent;
 
 import com.tddforge.domain.AgentRun;
+import com.tddforge.domain.CoderResult;
 import com.tddforge.opencode.OpenCodeClient;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-public final class CoderAgent extends BaseAgent {
+public final class CoderAgent extends BaseAgent<CoderResult> {
 
     public CoderAgent(OpenCodeClient openCodeClient,
                       PromptTemplateRegistry promptRegistry,
                       AgentOutputExtractor outputExtractor) {
         super(openCodeClient, promptRegistry, outputExtractor);
-    }
-
-    @Override
-    public AgentRun run(AgentContext context) {
-        AgentRun agentRun = super.run(context);
-        outputExtractor.extractCoderResult(agentRun);
-        return agentRun;
     }
 
     @Override
@@ -43,5 +37,10 @@ public final class CoderAgent extends BaseAgent {
     @Override
     protected String getAgentType() {
         return "coder";
+    }
+
+    @Override
+    protected ExtractionResult<CoderResult> extractResult(AgentRun agentRun, AgentContext context) {
+        return outputExtractor.extractCoderResult(agentRun);
     }
 }

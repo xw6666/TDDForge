@@ -1,24 +1,18 @@
 package com.tddforge.agent;
 
 import com.tddforge.domain.AgentRun;
+import com.tddforge.domain.TestWriterResult;
 import com.tddforge.opencode.OpenCodeClient;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-public final class TestWriterAgent extends BaseAgent {
+public final class TestWriterAgent extends BaseAgent<TestWriterResult> {
 
     public TestWriterAgent(OpenCodeClient openCodeClient,
                            PromptTemplateRegistry promptRegistry,
                            AgentOutputExtractor outputExtractor) {
         super(openCodeClient, promptRegistry, outputExtractor);
-    }
-
-    @Override
-    public AgentRun run(AgentContext context) {
-        AgentRun agentRun = super.run(context);
-        outputExtractor.extractTestWriterResult(agentRun);
-        return agentRun;
     }
 
     @Override
@@ -39,5 +33,10 @@ public final class TestWriterAgent extends BaseAgent {
     @Override
     protected String getAgentType() {
         return "test_writer";
+    }
+
+    @Override
+    protected ExtractionResult<TestWriterResult> extractResult(AgentRun agentRun, AgentContext context) {
+        return outputExtractor.extractTestWriterResult(agentRun);
     }
 }

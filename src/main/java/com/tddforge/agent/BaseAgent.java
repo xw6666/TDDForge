@@ -7,7 +7,7 @@ import com.tddforge.opencode.OpenCodeClient;
 
 import java.util.Map;
 
-public abstract class BaseAgent implements Agent {
+public abstract class BaseAgent<T> implements Agent<T> {
 
     protected final OpenCodeClient openCodeClient;
     protected final PromptTemplateRegistry promptRegistry;
@@ -31,7 +31,7 @@ public abstract class BaseAgent implements Agent {
     }
 
     @Override
-    public AgentRun run(AgentContext context) {
+    public AgentResult<T> run(AgentContext context) {
         String prompt = promptRegistry.render(getTemplate(context), getPromptVariables(context));
 
         ModelSpec modelSpec = context.modelSpec();
@@ -46,7 +46,9 @@ public abstract class BaseAgent implements Agent {
                 context.timeoutSeconds()
         );
 
-        return openCodeClient.run(context.taskId(), getAgentType(), request);
+        AgentRun agentRun = openCodeClient.run(context.taskId(), getAgentType(), request);
+        ExtractionResult<T> extractionResult = extractResult(agentRun, context);
+        return new AgentResult<>(agentRun, extractionResult);
     }
 
     protected abstract PromptTemplateRegistry.Template getTemplate(AgentContext context);
@@ -54,4 +56,6 @@ public abstract class BaseAgent implements Agent {
     protected abstract Map<String, String> getPromptVariables(AgentContext context);
 
     protected abstract String getAgentType();
+
+    protected abstract ExtractionResult<T> extractResult(AgentRun agentRun, AgentContext context);
 }

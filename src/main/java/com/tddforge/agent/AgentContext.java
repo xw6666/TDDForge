@@ -22,7 +22,8 @@ public record AgentContext(
         @Nullable String priorRejections,
         @Nullable String filePath,
         @Nullable String lineNumber,
-        @Nullable String dependencyContext
+        @Nullable String dependencyContext,
+        @Nullable String reviewerId
 ) {
 
     public AgentContext {

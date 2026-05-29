@@ -1,8 +1,6 @@
 package com.tddforge.agent;
 
-import com.tddforge.domain.AgentRun;
+public interface Agent<T> {
 
-public interface Agent {
-
-    AgentRun run(AgentContext context);
+    AgentResult<T> run(AgentContext context);
 }
