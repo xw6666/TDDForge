@@ -41,11 +41,7 @@ public class AgentOutputExtractor {
                     "fixture(?:s)?\\s+(?:is|are|was|were)?\\s*wrong|" +
                     "fixture\\s+error|" +
                     "test\\s+logic\\s+error|" +
-                    "test(?:s)?\\s+(?:is|are|was|were)?\\s+(?:irrelevant|not\\s+relevant)|" +
-                    "test(?:s|ing)?\\b|" +
-                    "coverage\\b|" +
-                    "assertion(?:s)?\\b|" +
-                    "fixture(?:s)?\\b)\\b",
+                    "test(?:s)?\\s+(?:is|are|was|were)?\\s+(?:irrelevant|not\\s+relevant))\\b",
             Pattern.CASE_INSENSITIVE);
 
     private static final Pattern LABELED_COMMAND_PATTERN = Pattern.compile(

@@ -17,6 +17,7 @@ import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.Nullable;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -669,11 +670,10 @@ private ExecutionOutcome runTestWriting(Task task) {
             if (reviewerResult.verdict() == ReviewVerdict.REQUEST_CHANGES) {
                 anyRejected = true;
                 firstRejection = reviewerResult;
-                String routeCategory = reviewerResult.category() != null ? reviewerResult.category() : "unclear";
                 recordEvent(task, "REVIEW_REJECTED",
                         "Reviewer " + reviewerId + " requested changes, category: " + reviewerResult.category()
                                 + ", feedback: " + truncate(reviewerResult.feedback(), 200),
-                        buildReviewEventDataConditional(reviewerResult));
+                        buildReviewEventData(reviewerResult, null, null));
                 break;
             }
 
@@ -840,29 +840,13 @@ private ExecutionOutcome runTestWriting(Task task) {
         log.info("TaskEvent: taskId={}, type={}, message={}", task.getId(), eventType, truncate(message, 200));
     }
 
-    private String buildReviewEventData(ReviewerResult reviewerResult, String category, String route) {
+    private String buildReviewEventData(ReviewerResult reviewerResult, @Nullable String category, @Nullable String route) {
+        String effectiveCategory = category != null ? category : (reviewerResult.category() != null ? reviewerResult.category() : "unclear");
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("category", category);
-        data.put("route", route);
-        data.put("reviewerId", reviewerResult.reviewerId());
-        data.put("verdict", reviewerResult.verdict().name());
-        String feedbackSnippet = reviewerResult.feedback();
-        if (feedbackSnippet != null && feedbackSnippet.length() > 500) {
-            feedbackSnippet = feedbackSnippet.substring(0, 500);
+        data.put("category", effectiveCategory);
+        if (route != null) {
+            data.put("route", route);
         }
-        data.put("feedbackSnippet", feedbackSnippet);
-        try {
-            return OBJECT_MAPPER.writeValueAsString(data);
-        } catch (JsonProcessingException e) {
-            log.warn("Failed to serialize review event data", e);
-            return null;
-        }
-    }
-
-    private String buildReviewEventDataConditional(ReviewerResult reviewerResult) {
-        String category = reviewerResult.category() != null ? reviewerResult.category() : "unclear";
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("category", category);
         data.put("reviewerId", reviewerResult.reviewerId());
         data.put("verdict", reviewerResult.verdict().name());
         String feedbackSnippet = reviewerResult.feedback();

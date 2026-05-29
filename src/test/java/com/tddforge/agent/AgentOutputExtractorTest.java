@@ -696,7 +696,7 @@ class AgentOutputExtractorTest {
             String text = """
                     REQUEST_CHANGES
 
-                    The assertions in the test are wrong. The fixture needs to be fixed.
+                    The assertions are wrong. The fixture is wrong and needs to be fixed.
                     """;
             String output = wrapInNdjson(text);
 
@@ -961,6 +961,42 @@ class AgentOutputExtractorTest {
             ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
                     createRun("reviewer", output), "reviewer-1");
             assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldNotClassifyBareTestedAsTestIssue() {
+            String text = "REQUEST_CHANGES\n\nI tested the implementation and the error handling is broken.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("implementation_issue");
+        }
+
+        @Test
+        void shouldNotClassifyBareAssertionAsTestIssue() {
+            String text = "REQUEST_CHANGES\n\nThe assertion in the production loop fails on empty input.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("implementation_issue");
+        }
+
+        @Test
+        void shouldNotClassifyBareCoverageAsTestIssue() {
+            String text = "REQUEST_CHANGES\n\nThe implementation needs more code coverage.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("implementation_issue");
+        }
+
+        @Test
+        void shouldNotClassifyBareFixtureAsTestIssue() {
+            String text = "REQUEST_CHANGES\n\nThe fixture setup in the dependency injection is incorrect.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("implementation_issue");
         }
     }
 }
