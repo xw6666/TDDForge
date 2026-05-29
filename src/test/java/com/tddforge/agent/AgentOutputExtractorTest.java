@@ -759,5 +759,208 @@ class AgentOutputExtractorTest {
 
             assertThat(result.result().category()).isEqualTo("implementation_issue");
         }
+
+        @Test
+        void shouldClassifyTestIsInvalidAsTestIssue() {
+            String text = "REQUEST_CHANGES\n\nThe test is invalid and needs to be rewritten.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifyTestsAreInvalidAsTestIssue() {
+            String text = "REQUEST_CHANGES\n\nThe tests are invalid.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifyWeakTestAsTestIssue() {
+            String text = "REQUEST_CHANGES\n\nThis is a weak test that does not properly verify behavior.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifyInsufficientTestCoverageAsTestIssue() {
+            String text = "REQUEST_CHANGES\n\nInsufficient test coverage for the new module.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifyTestWasWeakenedAsTestIssue() {
+            String text = "REQUEST_CHANGES\n\nThe test was weakened by the changes.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifySkippedTestAsTestIssue() {
+            String text = "REQUEST_CHANGES\n\nThere is a skipped test in the suite.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifyAssertionIsWrongAsTestIssue() {
+            String text = "REQUEST_CHANGES\n\nThe assertion is wrong and needs to be fixed.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifyAssertionsAreWrongAsTestIssue() {
+            String text = "REQUEST_CHANGES\n\nThe assertions are wrong in multiple places.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifyFixtureIsWrongAsTestIssue() {
+            String text = "REQUEST_CHANGES\n\nThe fixture is wrong and causes tests to fail.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifyDeletedTestsAsTestIssue() {
+            String text = "REQUEST_CHANGES\n\nThe deleted tests removed important coverage.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifyTestLogicErrorAsTestIssue() {
+            String text = "REQUEST_CHANGES\n\nThere is a test logic error in the assertions.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifyCaseInsensitiveTestIsInvalid() {
+            String text = "REQUEST_CHANGES\n\nTHE TEST IS INVALID.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifyCaseInsensitiveWeakTest() {
+            String text = "REQUEST_CHANGES\n\nWEAK TEST detected.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifyCaseInsensitiveSkippedTest() {
+            String text = "REQUEST_CHANGES\n\nSKIPPED TEST found.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifyCaseInsensitiveFixtureWrong() {
+            String text = "REQUEST_CHANGES\n\nTHE FIXTURE IS WRONG.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifyCaseInsensitiveAssertionWrong() {
+            String text = "REQUEST_CHANGES\n\nASSERTION WRONG in the test.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifyMixedCaseTestWasWeakened() {
+            String text = "REQUEST_CHANGES\n\nThe Test Was Weakened by these changes.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifyUnclearWhenFeedbackIsBlank() {
+            String text = "REQUEST_CHANGES";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("unclear");
+        }
+
+        @Test
+        void shouldClassifyDirectlyAsTestIssueUsingPublicMethod() {
+            String result = extractor.classifyReviewerFeedback(ReviewVerdict.REQUEST_CHANGES,
+                    "test is invalid and needs rewriting");
+            assertThat(result).isEqualTo("test_issue");
+        }
+
+        @Test
+        void shouldClassifyDirectlyAsImplementationIssueUsingPublicMethod() {
+            String result = extractor.classifyReviewerFeedback(ReviewVerdict.REQUEST_CHANGES,
+                    "the implementation has a bug in error handling");
+            assertThat(result).isEqualTo("implementation_issue");
+        }
+
+        @Test
+        void shouldClassifyDirectlyAsUnclearUsingPublicMethod() {
+            String result = extractor.classifyReviewerFeedback(ReviewVerdict.REQUEST_CHANGES, "");
+            assertThat(result).isEqualTo("unclear");
+        }
+
+        @Test
+        void shouldClassifyDirectlyAsNullForApproveUsingPublicMethod() {
+            String result = extractor.classifyReviewerFeedback(ReviewVerdict.APPROVE, "looks good");
+            assertThat(result).isNull();
+        }
+
+        @Test
+        void shouldClassifyDefaultFeedbackAsUnclearUsingPublicMethod() {
+            String result = extractor.classifyReviewerFeedback(ReviewVerdict.REQUEST_CHANGES, "(no feedback provided)");
+            assertThat(result).isEqualTo("unclear");
+        }
+
+        @Test
+        void shouldClassifyTestsIrrelevantAsTestIssue() {
+            String text = "REQUEST_CHANGES\n\nThe tests are irrelevant to the actual requirements.";
+            String output = wrapInNdjson(text);
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+            assertThat(result.result().category()).isEqualTo("test_issue");
+        }
     }
 }
