@@ -1,0 +1,44 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: none
+    database-platform: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: true
+    locations: classpath:db/h2-migration
+  datasource:
+    url: jdbc:h2:mem:tddforge_test;MODE=MySQL;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+repo:
+  path: /tmp/test-repo
+  worktree_dir: /tmp/test-worktrees
+
+opencode:
+  config_path: /tmp/test-opencode.json
+  timeout_seconds: 1800
+  max_continues: 5
+  planner:
+    model: test-planner-model
+  test_writer:
+    model: test-writer-model
+  test_reviewer:
+    model: test-reviewer-model
+  coder_default:
+    model: test-coder-model
+
+orchestrator:
+  max_parallel_tasks: 5
+  max_test_retries: 3
+  max_code_retries: 6
+  poll_interval_seconds: 15
+
+mysql:
+  url: jdbc:h2:mem:testdb
+  username: sa
+  password:
+
+publish:
+  remote: test-remote

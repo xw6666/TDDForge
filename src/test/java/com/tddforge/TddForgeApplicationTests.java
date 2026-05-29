@@ -20,9 +20,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
     "opencode.test-writer.model=test",
     "opencode.test-reviewer.model=test",
     "opencode.coder-default.model=test",
-    "mysql.url=jdbc:mysql://localhost:3306/test",
-    "mysql.username=test",
-    "mysql.password=test"
+    "spring.flyway.enabled=false",
+    "spring.datasource.url=jdbc:h2:mem:apptest;MODE=MySQL;DB_CLOSE_DELAY=-1",
+    "spring.datasource.driver-class-name=org.h2.Driver",
+    "spring.datasource.username=sa",
+    "spring.datasource.password=",
+    "spring.jpa.hibernate.ddl-auto=none",
+    "mysql.url=jdbc:h2:mem:apptest",
+    "mysql.username=sa",
+    "mysql.password=sa"
 })
 @AutoConfigureMockMvc
 class TddForgeApplicationTests {

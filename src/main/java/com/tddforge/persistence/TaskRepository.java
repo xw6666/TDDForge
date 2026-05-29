@@ -1,0 +1,15 @@
+package com.tddforge.persistence;
+
+import com.tddforge.domain.TaskStatus;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface TaskRepository extends JpaRepository<TaskEntity, String> {
+
+    List<TaskEntity> findByStatus(TaskStatus status);
+
+    List<TaskEntity> findByParentId(String parentId);
+}
