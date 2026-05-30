@@ -85,6 +85,7 @@ TDDForge loads configuration from `/etc/opengiraffe-java/config.yaml`. Copy the 
 
 ```bash
 sudo cp doc/config/example/config.yaml /etc/opengiraffe-java/config.yaml
+sudo chown opengiraffe:opengiraffe /etc/opengiraffe-java/config.yaml
 sudo chmod 600 /etc/opengiraffe-java/config.yaml
 ```
 
@@ -144,6 +145,13 @@ Place the opencode CLI configuration at the path specified by `opencode.config_p
 }
 ```
 
+Set appropriate permissions:
+
+```bash
+sudo chown opengiraffe:opengiraffe /etc/opengiraffe-java/opencode.json
+sudo chmod 600 /etc/opengiraffe-java/opencode.json
+```
+
 ## MySQL Setup
 
 ### Create Database and User
@@ -166,7 +174,7 @@ No manual SQL execution is required. The migration scripts are embedded in the J
 After the first successful startup:
 
 ```bash
-mysql -u opengiraffe -p opengiraffe_java -e "SHOW TABLES;"
+mysql -u opengiraffe -p -e "SHOW TABLES;" opengiraffe_java
 ```
 
 Expected tables:
