@@ -20,10 +20,10 @@ mvn clean test
 mvn spring-boot:run
 ```
 
-The application starts on port 3550 by default. Verify it is running:
+The application starts on port 8778 by default (configurable via `server.port` in `/etc/opengiraffe-java/config.yaml`). Verify it is running:
 
 ```bash
-curl http://localhost:3550/actuator/health
+curl http://localhost:8778/actuator/health
 ```
 
 ## Package Structure

@@ -224,10 +224,10 @@ Key settings in the template:
 |---|---|---|
 | `User` | `opengiraffe` | Non-root user running the daemon |
 | `WorkingDirectory` | `/opt/tddforge` | Application home directory |
-| `ExecStart` | `/usr/bin/java -jar /opt/tddforge/tddforge.jar` | Launch command |
+| `ExecStart` | `/usr/bin/java $JAVA_OPTS -jar /opt/tddforge/tddforge.jar` | Launch command with JVM options |
 | `Restart` | `on-failure` | Auto-restart on non-zero exit |
 | `RestartSec` | `10` | Seconds between restart attempts |
-| `Environment` | `SPRING_CONFIG_ADDITIONAL_LOCATION=/etc/opengiraffe-java/` | Config directory override |
+| `Environment` | `JAVA_OPTS=-Xms256m -Xmx512m` | JVM memory settings (customizable) |
 
 ### 8.3 Enable and Start
 
