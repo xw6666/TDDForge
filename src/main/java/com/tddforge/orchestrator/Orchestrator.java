@@ -8,6 +8,7 @@ import com.tddforge.persistence.TaskEntity;
 import com.tddforge.persistence.TaskRepository;
 import com.tddforge.service.DependencyTracker;
 import com.tddforge.service.TaskExecutionService;
+import com.tddforge.util.MdcSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -153,6 +154,7 @@ public class Orchestrator {
 
     private Runnable createTaskWrapper(String taskId) {
         return () -> {
+            MdcSupport.setTaskContext(taskId);
             try {
                 log.info("Task {} execution started", taskId);
                 taskExecutionService.executeTask(taskId);
@@ -160,6 +162,7 @@ public class Orchestrator {
             } catch (Exception e) {
                 log.error("Task {} execution failed with exception", taskId, e);
             } finally {
+                MdcSupport.clearTaskContext();
                 runningTasks.remove(taskId);
                 dispatchedOrPending.remove(taskId);
                 log.info("Task {} removed from running map, running={}", taskId, runningTasks.size());

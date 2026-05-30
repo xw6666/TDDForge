@@ -3,6 +3,8 @@ package com.tddforge.opencode;
 import com.tddforge.config.OpencodeConfig;
 import com.tddforge.domain.AgentRun;
 import com.tddforge.domain.OpenCodeRequest;
+import com.tddforge.util.LogSanitizer;
+import com.tddforge.util.MdcSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,6 +45,16 @@ public class OpenCodeClient {
     }
 
     public AgentRun run(String taskId, String agentType, OpenCodeRequest request) {
+        MdcSupport.setTaskContext(taskId);
+        MdcSupport.setAgentContext(agentType, request.model());
+        try {
+            return doRun(taskId, agentType, request);
+        } finally {
+            MdcSupport.clearTaskContext();
+        }
+    }
+
+    private AgentRun doRun(String taskId, String agentType, OpenCodeRequest request) {
         Instant startTime = Instant.now();
         String accumulatedOutput = "";
         String sessionId = request.sessionId();
@@ -54,7 +66,8 @@ public class OpenCodeClient {
             String prompt = (attempt == 0) ? request.prompt() : CONTINUE_PROMPT;
 
             List<String> command = buildCommand(request, sessionId, prompt);
-            log.info("Running opencode (attempt {}/{}): {}", attempt, maxContinues, String.join(" ", command));
+            log.info("Running opencode attempt {}/{}: model={}, worktree={}",
+                    attempt, maxContinues, request.model(), request.worktreeDir());
 
             RunResult result = executeProcess(taskId, request.worktreeDir(), command, request.timeoutSeconds());
             String attemptOutput = result.output();
@@ -71,6 +84,7 @@ public class OpenCodeClient {
 
             if (parsed.sessionId() != null && !parsed.sessionId().isBlank()) {
                 sessionId = parsed.sessionId();
+                MdcSupport.setSessionId(sessionId);
             }
 
             if (exitNormally(finalExitCode, parsed, sessionId, attempt, maxContinues)) {
@@ -84,6 +98,11 @@ public class OpenCodeClient {
 
         Instant endTime = Instant.now();
         long durationMs = endTime.toEpochMilli() - startTime.toEpochMilli();
+
+        MdcSupport.setRunMetrics(durationMs, finalExitCode);
+        MdcSupport.setContinueCount(continueCount);
+        log.info("Opencode run completed: exitCode={}, durationMs={}, sessionId={}, continueCount={}",
+                finalExitCode, durationMs, sessionId, continueCount);
 
         return new AgentRun(
                 generateId(),
@@ -152,7 +171,7 @@ public class OpenCodeClient {
             String stderr = Files.readString(errFile).trim();
 
             if (!stderr.isEmpty()) {
-                log.warn("Opencode stderr (PID {}): {}", pid, stderr);
+                log.warn("Opencode stderr (PID {}): {}", pid, LogSanitizer.truncateOutput(stderr));
             }
 
             if (exitCode != 0 && !stderr.isEmpty()) {

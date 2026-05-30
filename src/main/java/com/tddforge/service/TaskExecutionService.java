@@ -12,6 +12,7 @@ import com.tddforge.persistence.TaskEntity;
 import com.tddforge.persistence.TaskEventEntity;
 import com.tddforge.persistence.TaskEventRepository;
 import com.tddforge.persistence.TaskRepository;
+import com.tddforge.util.MdcSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -84,6 +85,15 @@ public class TaskExecutionService {
     }
 
     public ExecutionOutcome executeTask(String taskId) {
+        MdcSupport.setTaskContext(taskId);
+        try {
+            return doExecuteTask(taskId);
+        } finally {
+            MdcSupport.clearTaskContext();
+        }
+    }
+
+    private ExecutionOutcome doExecuteTask(String taskId) {
         TaskEntity taskEntity = taskRepository.findById(taskId)
                 .orElseThrow(() -> new IllegalArgumentException("Task not found: " + taskId));
         Task task = taskEntity.toDomain();
@@ -220,6 +230,9 @@ public class TaskExecutionService {
 
         ModelSpec modelSpec = toDomainModelSpec(opencodeConfig.getPlanner());
         long timeout = opencodeConfig.getTimeoutSeconds();
+        MdcSupport.setAgentContext("planner", modelSpec.model());
+        log.info("Starting planning phase: taskId={}, model={}", task.getId(), modelSpec.model());
+
         AgentContext context = new AgentContext(
                 task.getId(), Path.of(task.getRepoPath()), null, modelSpec,
                 task.getTitle(), task.getDescription(), task.getRepoPath(), timeout,
@@ -344,6 +357,7 @@ private ExecutionOutcome runTestWriting(Task task) {
 
         if (isRetry) {
             attempt = task.getTestRetryCount() + 1;
+            MdcSupport.setRetryCount(task.getTestRetryCount() + 1);
             if (task.getStatus() == TaskStatus.TEST_REVIEW_FAILED && task.getTestReviewOutput() != null) {
                 testPhaseFeedback = "TestReviewer REQUEST_CHANGES feedback:\n" + task.getTestReviewOutput();
             } else if (task.getError() != null) {
@@ -369,6 +383,11 @@ private ExecutionOutcome runTestWriting(Task task) {
 
         ModelSpec modelSpec = toDomainModelSpec(opencodeConfig.getTestWriter());
         long timeout = opencodeConfig.getTimeoutSeconds();
+        MdcSupport.setAgentContext("test_writer", modelSpec.model());
+        MdcSupport.setWorktreeContext(worktreePath, task.getBranchName());
+        log.info("Starting test writing phase: taskId={}, model={}, worktree={}, isRetry={}",
+                task.getId(), modelSpec.model(), worktreePath, isRetry);
+
         AgentContext context = new AgentContext(
                 task.getId(), Path.of(worktreePath), null, modelSpec,
                 task.getTitle(), task.getDescription(), task.getRepoPath(), timeout,
@@ -462,6 +481,9 @@ private ExecutionOutcome runTestWriting(Task task) {
         String worktreePath = task.getWorktreePath();
         ModelSpec modelSpec = toDomainModelSpec(opencodeConfig.getTestReviewer());
         long timeout = opencodeConfig.getTimeoutSeconds();
+        MdcSupport.setAgentContext("test_reviewer", modelSpec.model());
+        MdcSupport.setWorktreeContext(worktreePath, task.getBranchName());
+        log.info("Starting test review phase: taskId={}, model={}", task.getId(), modelSpec.model());
         AgentContext context = new AgentContext(
                 task.getId(), Path.of(worktreePath), null, modelSpec,
                 task.getTitle(), task.getDescription(), task.getRepoPath(), timeout,
@@ -555,6 +577,7 @@ private ExecutionOutcome runTestWriting(Task task) {
 
         if (isRetry) {
             attempt = task.getCodeRetryCount() + 1;
+            MdcSupport.setRetryCount(task.getCodeRetryCount() + 1);
             reviewFeedback = getLatestReviewFeedback(task);
             if (reviewFeedback == null || reviewFeedback.isBlank()) {
                 reviewFeedback = task.getError() != null ? task.getError() : "Previous coder attempt failed.";
@@ -576,6 +599,11 @@ private ExecutionOutcome runTestWriting(Task task) {
 
         ModelSpec modelSpec = getCoderModelSpec(task);
         String coderSessionId = getLatestCoderSessionId(task);
+
+        MdcSupport.setAgentContext("coder", modelSpec.model());
+        MdcSupport.setWorktreeContext(worktreePath, task.getBranchName());
+        log.info("Starting coding phase: taskId={}, model={}, worktree={}, isRetry={}",
+                task.getId(), modelSpec.model(), worktreePath, isRetry);
 
         if (isRetry && coderSessionId == null) {
             recordEvent(task, "CODER_SESSION_MISSING", "No coder session found for retry; opencode will create a new session.");
@@ -683,12 +711,18 @@ private ExecutionOutcome runTestWriting(Task task) {
         String priorRejections = buildPriorRejections(task);
         long timeout = opencodeConfig.getTimeoutSeconds();
 
+        log.info("Starting review phase: taskId={}, reviewerCount={}, worktree={}",
+                task.getId(), reviewerSpecs.size(), worktreePath);
+
         boolean anyRejected = false;
         ReviewerResult firstRejection = null;
 
         for (int i = 0; i < reviewerSpecs.size(); i++) {
             ModelSpec modelSpec = toDomainModelSpec(reviewerSpecs.get(i));
             String reviewerId = "reviewer-" + (i + 1);
+
+            MdcSupport.setAgentContext(reviewerId, modelSpec.model());
+            log.info("Running reviewer {}: taskId={}, model={}", reviewerId, task.getId(), modelSpec.model());
 
             AgentContext context = new AgentContext(
                     task.getId(), Path.of(worktreePath), null, modelSpec,
