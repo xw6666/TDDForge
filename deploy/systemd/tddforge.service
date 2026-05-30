@@ -1,0 +1,28 @@
+[Unit]
+Description=TDDForge - TDD-based Auto R&D Task Orchestration Daemon
+Documentation=https://github.com/opengiraffe/tddforge
+After=network.target mysql.service
+Requires=mysql.service
+
+[Service]
+Type=simple
+User=opengiraffe
+Group=opengiraffe
+WorkingDirectory=/opt/tddforge
+ExecStart=/usr/bin/java $JAVA_OPTS -jar /opt/tddforge/tddforge.jar
+Restart=on-failure
+RestartSec=10
+SuccessExitStatus=143
+
+Environment="JAVA_OPTS=-Xms256m -Xmx512m"
+
+TimeoutStopSec=30
+KillMode=mixed
+KillSignal=SIGTERM
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tddforge
+
+[Install]
+WantedBy=multi-user.target
