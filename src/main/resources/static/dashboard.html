@@ -225,6 +225,7 @@ let currentFilter = 'All';
 let searchQuery = '';
 let pollTimer = null;
 let formDirty = false;
+let isActionPending = false;
 
 const STATUSES = ['All','PENDING','PLANNING','TEST_WRITING','TEST_REVIEWING','CODING','REVIEWING','NEEDS_ARBITRATION','COMPLETED','FAILED','CANCELLED'];
 
@@ -401,11 +402,11 @@ function tr(label, value) {
 
 function renderTaskDetail(t, runs) {
   const panel = document.getElementById('detail-panel');
-  const canDispatch = t.status === 'PENDING';
-  const canCancel = t.status !== 'COMPLETED' && t.status !== 'CANCELLED';
-  const canRevise = t.status === 'NEEDS_ARBITRATION';
-  const canClean = ['COMPLETED', 'FAILED', 'CANCELLED', 'NEEDS_ARBITRATION'].includes(t.status);
-  const canPublish = t.status === 'COMPLETED';
+  const canDispatch = !isActionPending && t.status === 'PENDING';
+  const canCancel = !isActionPending && t.status !== 'COMPLETED' && t.status !== 'CANCELLED';
+  const canRevise = !isActionPending && t.status === 'NEEDS_ARBITRATION';
+  const canClean = !isActionPending && ['COMPLETED', 'FAILED', 'CANCELLED', 'NEEDS_ARBITRATION'].includes(t.status);
+  const canPublish = !isActionPending && t.status === 'COMPLETED';
 
   let childrenHtml = '';
   if (t.children && t.children.length > 0) {
@@ -516,7 +517,8 @@ function focusRevise() {
 // --- Actions ---
 
 async function doAction(action, btn, body) {
-  if (!selectedTaskId) return;
+  if (!selectedTaskId || isActionPending) return;
+  isActionPending = true;
   if (btn) { btn.disabled = true; btn.classList.add('loading'); }
   try {
     const opts = { method: 'POST', headers: {} };
@@ -531,11 +533,11 @@ async function doAction(action, btn, body) {
   } catch (e) {
     showToast('Error: ' + e.message, 'error');
   } finally {
-    if (btn) { btn.disabled = false; btn.classList.remove('loading'); }
+    isActionPending = false;
   }
 }
 
-function doDispatch(btn) { doAction('dispatch', btn); }
+function doDispatch(btn) { if (confirm('Dispatch this task?')) doAction('dispatch', btn); }
 function doCancel(btn) { if (confirm('Cancel this task?')) doAction('cancel', btn); }
 function doClean(btn) { if (confirm('Clean worktree and branch?')) doAction('clean', btn); }
 function doPublish(btn) { if (confirm('Publish branch?')) doAction('publish', btn); }
@@ -545,6 +547,7 @@ async function doRevise() {
   if (!ta) return;
   const feedback = ta.value.trim();
   if (!feedback) { showToast('Feedback is required', 'error'); return; }
+  if (!confirm('Submit revision with the provided feedback?')) return;
   const btn = ta.parentElement.querySelector('button');
   await doAction('revise', btn, { feedback });
 }
@@ -627,7 +630,7 @@ function startPolling() {
     if (!document.getElementById('new-task-modal').classList.contains('show')) {
       loadTaskList();
     }
-    if (selectedTaskId && !document.getElementById('revise-section')) {
+    if (selectedTaskId && !isActionPending && !document.getElementById('revise-section')) {
       loadTaskDetail(selectedTaskId);
     }
   }, 5000);
