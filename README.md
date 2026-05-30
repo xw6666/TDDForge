@@ -84,6 +84,7 @@ Expected response:
 TDDForge loads configuration from `/etc/opengiraffe-java/config.yaml`. Copy the example template:
 
 ```bash
+sudo mkdir -p /etc/opengiraffe-java
 sudo cp doc/config/example/config.yaml /etc/opengiraffe-java/config.yaml
 sudo chown opengiraffe:opengiraffe /etc/opengiraffe-java/config.yaml
 sudo chmod 600 /etc/opengiraffe-java/config.yaml
@@ -129,7 +130,8 @@ publish:
   remote: origin
 
 logging:
-  level: INFO
+  level:
+    root: INFO
 ```
 
 ### opencode Configuration
@@ -256,7 +258,7 @@ curl -X POST http://localhost:8778/api/tasks \
   -d '{
     "title": "Fix cache invalidation bug",
     "description": "When user permissions change, cached access decisions should be invalidated.",
-    "priority": "medium",
+    "priority": "MEDIUM",
     "forceNoSplit": false
   }'
 ```
