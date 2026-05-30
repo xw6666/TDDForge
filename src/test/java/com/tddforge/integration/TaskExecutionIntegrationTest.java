@@ -670,14 +670,14 @@ class TaskExecutionIntegrationTest {
         private TaskExecutionService e2eService;
         private Path e2eWorktreeDir;
 
-    @BeforeEach
-    void setUpE2E() throws IOException {
-        e2eWorktreeDir = Files.createTempDirectory("e2e-worktree");
+        @BeforeEach
+        void setUpE2E() throws IOException {
+            e2eWorktreeDir = Files.createTempDirectory("e2e-worktree");
 
-        OpencodeConfig fakeConfig = new OpencodeConfig();
-        fakeConfig.setConfigPath("/tmp/e2e-opencode-config.json");
-        fakeConfig.setTimeoutSeconds(30);
-        fakeConfig.setMaxContinues(1);
+            OpencodeConfig fakeConfig = new OpencodeConfig();
+            fakeConfig.setConfigPath("/tmp/e2e-opencode-config.json");
+            fakeConfig.setTimeoutSeconds(30);
+            fakeConfig.setMaxContinues(1);
 
             com.tddforge.config.ModelSpec modelSpec = new com.tddforge.config.ModelSpec();
             modelSpec.setModel("fake-model");
@@ -766,7 +766,7 @@ class TaskExecutionIntegrationTest {
     class InFlightCancellation {
 
         @Test
-        void shouldKillOpencodeProcessWhenTaskCancelledMidExecution() throws Exception {
+        void shouldKillRunningOpencodeProcessWhenKillTaskCalled() throws Exception {
             OpencodeConfig cancelConfig = new OpencodeConfig();
             cancelConfig.setConfigPath("/tmp/cancel-config.json");
             cancelConfig.setTimeoutSeconds(60);
@@ -775,16 +775,35 @@ class TaskExecutionIntegrationTest {
             ms.setModel("fake-model");
             cancelConfig.setPlanner(ms);
 
-            String fakeScriptPath = getClass().getClassLoader()
-                    .getResource("scripts/fake-opencode-integration.sh").getPath();
+            String sleepScriptPath = getClass().getClassLoader()
+                    .getResource("scripts/fake-opencode-sleep.sh").getPath();
 
             OpenCodeNdjsonParser parser = new OpenCodeNdjsonParser();
             OpenCodeClient cancelClient = new OpenCodeClient(cancelConfig, parser);
-            cancelClient.setOpencodeBinary(fakeScriptPath);
+            cancelClient.setOpencodeBinary(sleepScriptPath);
 
-            cancelClient.killTask("nonexistent-task");
+            String taskId = "cancel-test-task";
+            java.util.concurrent.atomic.AtomicReference<AgentRun> runResult = new java.util.concurrent.atomic.AtomicReference<>();
+            java.util.concurrent.CountDownLatch started = new java.util.concurrent.CountDownLatch(1);
 
-            cancelClient.killAll();
+            Thread runner = new Thread(() -> {
+                started.countDown();
+                OpenCodeRequest request = new OpenCodeRequest(
+                        "fake-model", Path.of("/tmp"), "sleep prompt", null, null, null, null, 60L);
+                runResult.set(cancelClient.run(taskId, "test", request));
+            });
+            runner.start();
+
+            assertThat(started.await(2, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            Thread.sleep(500);
+
+            cancelClient.killTask(taskId);
+
+            runner.join(10_000);
+            assertThat(runner.isAlive()).isFalse();
+
+            AgentRun result = runResult.get();
+            assertThat(result).isNotNull();
         }
     }
 }
