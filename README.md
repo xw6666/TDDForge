@@ -138,18 +138,15 @@ logging:
 
 Place the opencode CLI configuration at the path specified by `opencode.config_path` (default: `/etc/opengiraffe-java/opencode.json`):
 
-```json
+```bash
+sudo tee /etc/opengiraffe-java/opencode.json > /dev/null << 'EOF'
 {
   "provider": {
     "name": "your-provider",
     "apiKey": "<YOUR_API_KEY>"
   }
 }
-```
-
-Set appropriate permissions:
-
-```bash
+EOF
 sudo chown opengiraffe:opengiraffe /etc/opengiraffe-java/opencode.json
 sudo chmod 600 /etc/opengiraffe-java/opencode.json
 ```
