@@ -11,6 +11,7 @@ import com.tddforge.orchestrator.Orchestrator;
 import com.tddforge.persistence.AgentRunRepository;
 import com.tddforge.persistence.TaskEntity;
 import com.tddforge.persistence.TaskRepository;
+import com.tddforge.service.StartupRecoveryService;
 import com.tddforge.web.dto.OperationResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -37,6 +38,7 @@ class TaskWebServiceTest {
     @Mock private Orchestrator orchestrator;
     @Mock private OpenCodeClient openCodeClient;
     @Mock private WorktreeManager worktreeManager;
+    @Mock private StartupRecoveryService startupRecoveryService;
 
     private RepoConfig repoConfig;
     private OrchestratorConfig orchestratorConfig;
@@ -54,7 +56,8 @@ class TaskWebServiceTest {
 
         service = new TaskWebService(
                 taskRepository, agentRunRepository, orchestrator,
-                openCodeClient, worktreeManager, orchestratorConfig, repoConfig);
+                openCodeClient, worktreeManager, orchestratorConfig, repoConfig,
+                startupRecoveryService);
     }
 
     private TaskEntity createTaskEntity(String id, TaskStatus status) {

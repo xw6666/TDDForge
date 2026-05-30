@@ -10,6 +10,8 @@ import com.tddforge.persistence.AgentRunEntity;
 import com.tddforge.persistence.AgentRunRepository;
 import com.tddforge.persistence.TaskEntity;
 import com.tddforge.persistence.TaskRepository;
+import com.tddforge.service.ResourceSnapshot;
+import com.tddforge.service.StartupRecoveryService;
 import com.tddforge.web.dto.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +35,7 @@ public class TaskWebService {
     private final WorktreeManager worktreeManager;
     private final OrchestratorConfig orchestratorConfig;
     private final RepoConfig repoConfig;
+    private final StartupRecoveryService startupRecoveryService;
 
     public TaskWebService(TaskRepository taskRepository,
                           AgentRunRepository agentRunRepository,
@@ -40,7 +43,8 @@ public class TaskWebService {
                           OpenCodeClient openCodeClient,
                           WorktreeManager worktreeManager,
                           OrchestratorConfig orchestratorConfig,
-                          RepoConfig repoConfig) {
+                          RepoConfig repoConfig,
+                          StartupRecoveryService startupRecoveryService) {
         this.taskRepository = taskRepository;
         this.agentRunRepository = agentRunRepository;
         this.orchestrator = orchestrator;
@@ -48,6 +52,7 @@ public class TaskWebService {
         this.worktreeManager = worktreeManager;
         this.orchestratorConfig = orchestratorConfig;
         this.repoConfig = repoConfig;
+        this.startupRecoveryService = startupRecoveryService;
     }
 
     @Transactional
@@ -230,11 +235,14 @@ public class TaskWebService {
     }
 
     public SystemStatusResponse getSystemStatus() {
+        ResourceSnapshot snapshot = startupRecoveryService.getLastResourceSnapshot();
+        List<ResourceSnapshot.TaskResourceStatus> resourceStatuses = snapshot != null ? snapshot.tasks() : null;
         return new SystemStatusResponse(
                 orchestrator.isStarted(),
                 orchestrator.getRunningCount(),
                 orchestrator.getPendingCount(),
-                orchestratorConfig.getMaxParallelTasks()
+                orchestratorConfig.getMaxParallelTasks(),
+                resourceStatuses
         );
     }
 
