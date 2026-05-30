@@ -224,4 +224,29 @@ class OpenCodeClientTest {
 
         assertThat(run.durationMs()).isGreaterThanOrEqualTo(0);
     }
+
+    @Test
+    void shouldNotContinueWhenNonZeroExitWithoutSession() {
+        config.setMaxContinues(5);
+        OpenCodeClient client = new OpenCodeClient(config);
+        client.setOpencodeBinary(scriptsDir + "/fake-opencode-fail.sh");
+
+        AgentRun run = client.run("task-fail-no-session", "coder", createRequest("Task that fails"));
+
+        assertThat(run.exitCode()).isEqualTo(1);
+        assertThat(run.continueCount()).isEqualTo(0);
+        assertThat(run.sessionId()).isNull();
+    }
+
+    @Test
+    void shouldNotContinueWhenMaxContinuesIsZero() {
+        config.setMaxContinues(0);
+        OpenCodeClient client = new OpenCodeClient(config);
+        client.setOpencodeBinary(scriptsDir + "/fake-opencode-incomplete-with-session.sh");
+
+        AgentRun run = client.run("task-zero-continue", "planner", createRequest("Single attempt"));
+
+        assertThat(run.continueCount()).isEqualTo(0);
+        assertThat(run.output()).contains("first run output");
+    }
 }
