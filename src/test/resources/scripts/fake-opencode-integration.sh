@@ -1,10 +1,13 @@
 #!/bin/bash
 # Fake opencode for integration tests.
-# Detects agent type from prompt content and outputs appropriate NDJSON.
-# Supports SCENARIO env var for override: APPROVE, INVALID, REJECT_CODER, REJECT_TEST, TEST_FAIL, CANCEL
+# Detects agent type from the first line of prompt content and outputs appropriate NDJSON.
+# Supports SCENARIO env var for override: SPLIT, INVALID, REJECT_TEST, REJECT_CODER, TEST_FAIL, CANCEL, TIMEOUT
 
 PROMPT="${@: -1}"
 SCENARIO="${SCENARIO:-auto}"
+
+# Extract first line for agent type detection (avoids false matches from embedded output)
+FIRST_LINE=$(echo "$PROMPT" | head -1)
 
 if [ "$SCENARIO" = "CANCEL" ]; then
   echo '{"type":"text","sessionId":"int-sess","text":"starting work"}'
@@ -18,7 +21,7 @@ if [ "$SCENARIO" = "TIMEOUT" ]; then
   exit 0
 fi
 
-case "$PROMPT" in
+case "$FIRST_LINE" in
   *"planning agent"*|*"Analyze the following task"*)
     if [ "$SCENARIO" = "SPLIT" ]; then
       cat << 'EOF'
@@ -28,7 +31,7 @@ case "$PROMPT" in
 EOF
     else
       cat << 'EOF'
-{"type":"text","sessionId":"int-planner-sess","text":"{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Straightforward task\",\"plan\":\"Overall objective: implement the feature\n1. Write tests\n2. Implement code\n3. Review\"}"}
+{"type":"text","sessionId":"int-planner-sess","text":"{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Straightforward task\",\"plan\":\"Overall objective: implement the feature. Step 1: Write tests. Step 2: Implement code. Step 3: Review.\"}"}
 {"type":"step_start","step_start":{"type":"thinking"}}
 {"type":"step_finish","step_finish":{"reason":"stop"}}
 EOF
@@ -49,7 +52,7 @@ EOF
 EOF
     fi
     ;;
-  *"test review agent"*|*"tests were written for"*)
+  *"test review agent"*)
     if [ "$SCENARIO" = "REJECT_TEST" ]; then
       cat << 'EOF'
 {"type":"text","sessionId":"int-tr-sess","text":"REQUEST_CHANGES\nTests are weak and do not cover edge cases."}
@@ -85,7 +88,7 @@ EOF
 EOF
     fi
     ;;
-  *"code review agent"*|*"was implemented"*)
+  *"code review agent"*)
     if [ "$SCENARIO" = "REJECT_IMPLEMENTATION" ]; then
       cat << 'EOF'
 {"type":"text","sessionId":"int-rev-sess","text":"REQUEST_CHANGES\nImplementation has bugs that need fixing."}
