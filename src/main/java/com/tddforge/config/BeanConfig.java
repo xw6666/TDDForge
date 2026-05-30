@@ -129,7 +129,8 @@ public class BeanConfig {
             TaskRepository taskRepository,
             DependencyTracker dependencyTracker,
             TaskExecutionService taskExecutionService,
-            OrchestratorConfig orchestratorConfig) {
-        return new Orchestrator(taskRepository, dependencyTracker, taskExecutionService, orchestratorConfig);
+            OrchestratorConfig orchestratorConfig,
+            OpenCodeClient openCodeClient) {
+        return new Orchestrator(taskRepository, dependencyTracker, taskExecutionService, orchestratorConfig, openCodeClient);
     }
 }

@@ -3,6 +3,7 @@ package com.tddforge.orchestrator;
 import com.tddforge.config.OrchestratorConfig;
 import com.tddforge.domain.Task;
 import com.tddforge.domain.TaskStatus;
+import com.tddforge.opencode.OpenCodeClient;
 import com.tddforge.persistence.TaskEntity;
 import com.tddforge.persistence.TaskRepository;
 import com.tddforge.service.DependencyTracker;
@@ -21,6 +22,7 @@ public class Orchestrator {
     private final DependencyTracker dependencyTracker;
     private final TaskExecutionService taskExecutionService;
     private final OrchestratorConfig orchestratorConfig;
+    private final OpenCodeClient openCodeClient;
 
     private final Map<String, Future<?>> runningTasks = new ConcurrentHashMap<>();
     private final Set<String> pendingDispatch = ConcurrentHashMap.newKeySet();
@@ -32,11 +34,13 @@ public class Orchestrator {
     public Orchestrator(TaskRepository taskRepository,
                         DependencyTracker dependencyTracker,
                         TaskExecutionService taskExecutionService,
-                        OrchestratorConfig orchestratorConfig) {
+                        OrchestratorConfig orchestratorConfig,
+                        OpenCodeClient openCodeClient) {
         this.taskRepository = taskRepository;
         this.dependencyTracker = dependencyTracker;
         this.taskExecutionService = taskExecutionService;
         this.orchestratorConfig = orchestratorConfig;
+        this.openCodeClient = openCodeClient;
     }
 
     public synchronized void start() {
@@ -56,15 +60,14 @@ public class Orchestrator {
             return;
         }
         started = false;
+        openCodeClient.killAll();
         if (executorService != null) {
-            executorService.shutdown();
+            executorService.shutdownNow();
             try {
-                if (!executorService.awaitTermination(30, TimeUnit.SECONDS)) {
-                    log.warn("Orchestrator executor did not terminate within 30 seconds, forcing shutdown");
-                    executorService.shutdownNow();
+                if (!executorService.awaitTermination(10, TimeUnit.SECONDS)) {
+                    log.warn("Orchestrator executor did not terminate within 10 seconds after shutdownNow");
                 }
             } catch (InterruptedException e) {
-                executorService.shutdownNow();
                 Thread.currentThread().interrupt();
             }
         }

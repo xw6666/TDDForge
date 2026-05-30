@@ -242,11 +242,18 @@ public class TaskExecutionService {
 
         saveAgentRun(result.agentRun());
 
-        if (result.agentRun().sessionId() != null && !result.agentRun().sessionId().isBlank()) {
-            task.addSessionId(result.agentRun().sessionId());
-            task.setUpdatedAt(Instant.now());
-            saveTask(task);
+        Task reloadedAfterPlanner = reloadTask(task.getId());
+        if (reloadedAfterPlanner.getStatus() == TaskStatus.CANCELLED) {
+            return new ExecutionOutcome.Cancelled(reloadedAfterPlanner);
         }
+
+        if (result.agentRun().sessionId() != null && !result.agentRun().sessionId().isBlank()) {
+            reloadedAfterPlanner.addSessionId(result.agentRun().sessionId());
+            reloadedAfterPlanner.setUpdatedAt(Instant.now());
+            saveTask(reloadedAfterPlanner);
+        }
+
+        task = reloadedAfterPlanner;
 
         if (result.extractionResult().hasCriticalError()) {
             String error = result.extractionResult().criticalError();
@@ -292,6 +299,11 @@ public class TaskExecutionService {
     }
 
     private ExecutionOutcome continueAfterPlanning(Task task) {
+        task = reloadTask(task.getId());
+        if (task.getStatus() == TaskStatus.CANCELLED) {
+            return new ExecutionOutcome.Cancelled(task);
+        }
+
         if (task.getBranchName() == null || task.getBranchName().isBlank()) {
             String branchName = worktreeManager.generateBranchName(task.getId(), task.getTitle());
             task.setBranchName(branchName);
@@ -377,6 +389,11 @@ private ExecutionOutcome runTestWriting(Task task) {
         saveAgentRun(result.agentRun());
         if (result.agentRun().sessionId() != null && !result.agentRun().sessionId().isBlank()) {
             task.addSessionId(result.agentRun().sessionId());
+        }
+
+        Task reloadedAfterTestWrite = reloadTask(task.getId());
+        if (reloadedAfterTestWrite.getStatus() == TaskStatus.CANCELLED) {
+            return new ExecutionOutcome.Cancelled(reloadedAfterTestWrite);
         }
 
         if (result.agentRun().exitCode() != 0) {
@@ -469,6 +486,11 @@ private ExecutionOutcome runTestWriting(Task task) {
         saveAgentRun(result.agentRun());
         if (result.agentRun().sessionId() != null && !result.agentRun().sessionId().isBlank()) {
             task.addSessionId(result.agentRun().sessionId());
+        }
+
+        Task reloadedAfterTestReview = reloadTask(task.getId());
+        if (reloadedAfterTestReview.getStatus() == TaskStatus.CANCELLED) {
+            return new ExecutionOutcome.Cancelled(reloadedAfterTestReview);
         }
 
         if (result.extractionResult().hasCriticalError()) {
@@ -597,6 +619,11 @@ private ExecutionOutcome runTestWriting(Task task) {
             task.addSessionId(result.agentRun().sessionId());
         }
 
+        Task reloadedAfterCoder = reloadTask(task.getId());
+        if (reloadedAfterCoder.getStatus() == TaskStatus.CANCELLED) {
+            return new ExecutionOutcome.Cancelled(reloadedAfterCoder);
+        }
+
         if (result.agentRun().exitCode() != 0) {
             task.setCodeRetryCount(task.getCodeRetryCount() + 1);
             if (task.getCodeRetryCount() > maxCodeRetries) {
@@ -688,6 +715,11 @@ private ExecutionOutcome runTestWriting(Task task) {
             saveAgentRun(result.agentRun());
             if (result.agentRun().sessionId() != null && !result.agentRun().sessionId().isBlank()) {
                 task.addSessionId(result.agentRun().sessionId());
+            }
+
+            Task reloadedAfterReviewer = reloadTask(task.getId());
+            if (reloadedAfterReviewer.getStatus() == TaskStatus.CANCELLED) {
+                return new ExecutionOutcome.Cancelled(reloadedAfterReviewer);
             }
 
             if (result.extractionResult().hasCriticalError()) {
