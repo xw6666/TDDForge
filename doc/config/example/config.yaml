@@ -74,4 +74,5 @@ publish:
 
 # --- Logging (Spring Boot standard properties) --------------------------------
 logging:
-  level: INFO
+  level:
+    root: INFO
