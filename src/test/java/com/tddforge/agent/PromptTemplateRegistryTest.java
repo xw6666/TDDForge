@@ -306,4 +306,16 @@ class PromptTemplateRegistryTest {
         String result = registry.render(PromptTemplateRegistry.Template.CONTINUE, null);
         assertEquals("Continue", result);
     }
+
+    @Test
+    void shouldThrowOnNullVariablesForTemplateWithPlaceholders() {
+        assertThrows(PromptTemplateRegistry.MissingVariableException.class,
+                () -> registry.render(PromptTemplateRegistry.Template.BRANCH_SLUG, null));
+    }
+
+    @Test
+    void shouldThrowOnNullVariablesForTestWriterRetry() {
+        assertThrows(PromptTemplateRegistry.MissingVariableException.class,
+                () -> registry.render(PromptTemplateRegistry.Template.TEST_WRITER_RETRY, null));
+    }
 }
