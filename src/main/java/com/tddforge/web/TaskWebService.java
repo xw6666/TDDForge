@@ -166,20 +166,17 @@ public class TaskWebService {
         }
 
         if (task.getWorktreePath() != null && !task.getWorktreePath().isBlank()) {
-            try {
-                worktreeManager.removeWorktree(Path.of(task.getWorktreePath()));
-            } catch (Exception e) {
-                log.warn("Failed to remove worktree for task {}: {}", id, e.getMessage());
-            }
+            worktreeManager.removeWorktree(Path.of(task.getWorktreePath()));
+            task.setWorktreePath("");
         }
 
         if (task.getBranchName() != null && !task.getBranchName().isBlank()) {
-            try {
-                worktreeManager.deleteBranch(task.getBranchName());
-            } catch (Exception e) {
-                log.warn("Failed to delete branch for task {}: {}", id, e.getMessage());
-            }
+            worktreeManager.deleteBranch(task.getBranchName());
+            task.setBranchName("");
         }
+
+        task.setUpdatedAt(Instant.now());
+        taskRepository.save(TaskEntity.fromDomain(task));
 
         log.info("Task {} cleaned: worktree and branch removed", id);
         return OperationResponse.success(id, "Task cleaned successfully");
@@ -202,6 +199,10 @@ public class TaskWebService {
         }
 
         String result = worktreeManager.publish(task.getBranchName());
+        task.setPublishedAt(Instant.now());
+        task.setUpdatedAt(Instant.now());
+        taskRepository.save(TaskEntity.fromDomain(task));
+
         log.info("Task {} published: {}", id, result);
         return OperationResponse.success(id, "Task published successfully");
     }
