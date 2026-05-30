@@ -149,6 +149,22 @@ public class WorktreeManager {
         return branch;
     }
 
+    public boolean worktreeExists(Path worktreePath) {
+        if (worktreePath == null) {
+            return false;
+        }
+        return Files.isDirectory(worktreePath);
+    }
+
+    public boolean branchExists(String branchName) {
+        if (branchName == null || branchName.isBlank()) {
+            return false;
+        }
+        Path repoPath = Path.of(repoConfig.getPath());
+        GitCommandResult result = runGit(repoPath, "rev-parse", "--verify", "refs/heads/" + branchName);
+        return result.success();
+    }
+
     public void fetchBaseBranch() {
         Path repoPath = Path.of(repoConfig.getPath());
         String baseBranch = repoConfig.getBaseBranch();

@@ -434,7 +434,7 @@ class TaskControllerTest {
         @Test
         void shouldReturnSystemStatus() throws Exception {
             when(taskWebService.getSystemStatus())
-                    .thenReturn(new SystemStatusResponse(true, 2, 1, 3));
+                    .thenReturn(new SystemStatusResponse(true, 2, 1, 3, null));
 
             mockMvc.perform(get("/api/system/status"))
                     .andExpect(status().isOk())
