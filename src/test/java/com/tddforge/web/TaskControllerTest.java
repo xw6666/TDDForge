@@ -39,7 +39,8 @@ class TaskControllerTest {
                 status, TaskPriority.MEDIUM, TaskSource.MANUAL, "develop",
                 null, List.of(), List.of(), false,
                 "task/" + id + "/test-task", "/tmp/worktrees/" + id,
-                "medium", 0, 0, 0, 2, 4,
+                "medium", null, null, null, null, null,
+                0, 0, 0, 2, 4,
                 List.of("session-1"), false, List.of(),
                 null, null, null,
                 Instant.parse("2025-01-01T00:00:00Z"),
@@ -442,6 +443,62 @@ class TaskControllerTest {
                     .andExpect(jsonPath("$.runningTasks").value(2))
                     .andExpect(jsonPath("$.pendingTasks").value(1))
                     .andExpect(jsonPath("$.maxParallelTasks").value(3));
+        }
+    }
+
+    @Nested
+    class TaskDetailPhaseOutputs {
+
+        @Test
+        void shouldReturnPhaseOutputFields() throws Exception {
+            TaskDetailResponse response = new TaskDetailResponse(
+                    "task-po", "Task With Outputs", "desc",
+                    TaskStatus.COMPLETED, TaskPriority.HIGH, TaskSource.MANUAL, "develop",
+                    null, List.of(), List.of(), false,
+                    "task/task-po/branch", "/tmp/wt/task-po",
+                    "high", "plan result", "test result", "test review result", "code result", "review result",
+                    1, 0, 1, 2, 4,
+                    List.of(), true, List.of(),
+                    null, null, null,
+                    Instant.parse("2025-01-01T00:00:00Z"),
+                    Instant.parse("2025-01-01T00:00:00Z"),
+                    null, null, null
+            );
+            when(taskWebService.getTask("task-po")).thenReturn(response);
+
+            mockMvc.perform(get("/api/tasks/task-po"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.planOutput").value("plan result"))
+                    .andExpect(jsonPath("$.testOutput").value("test result"))
+                    .andExpect(jsonPath("$.testReviewOutput").value("test review result"))
+                    .andExpect(jsonPath("$.codeOutput").value("code result"))
+                    .andExpect(jsonPath("$.reviewOutput").value("review result"));
+        }
+
+        @Test
+        void shouldReturnNullPhaseOutputsWhenEmpty() throws Exception {
+            TaskDetailResponse response = createSampleTaskDetail("task-no", TaskStatus.PENDING);
+            when(taskWebService.getTask("task-no")).thenReturn(response);
+
+            mockMvc.perform(get("/api/tasks/task-no"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.planOutput").doesNotExist())
+                    .andExpect(jsonPath("$.testOutput").doesNotExist())
+                    .andExpect(jsonPath("$.testReviewOutput").doesNotExist())
+                    .andExpect(jsonPath("$.codeOutput").doesNotExist())
+                    .andExpect(jsonPath("$.reviewOutput").doesNotExist());
+        }
+    }
+
+    @Nested
+    class Dashboard {
+
+        @Test
+        void shouldServeDashboardHtml() throws Exception {
+            mockMvc.perform(get("/dashboard.html"))
+                    .andExpect(status().isOk())
+                    .andExpect(content().contentType("text/html"))
+                    .andExpect(content().string(containsString("TDDForge Dashboard")));
         }
     }
 }
