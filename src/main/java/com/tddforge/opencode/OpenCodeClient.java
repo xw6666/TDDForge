@@ -7,6 +7,7 @@ import com.tddforge.util.LogSanitizer;
 import com.tddforge.util.MdcSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -45,12 +46,17 @@ public class OpenCodeClient {
     }
 
     public AgentRun run(String taskId, String agentType, OpenCodeRequest request) {
+        Map<String, String> previousMdc = MDC.getCopyOfContextMap();
         MdcSupport.setTaskContext(taskId);
         MdcSupport.setAgentContext(agentType, request.model());
         try {
             return doRun(taskId, agentType, request);
         } finally {
-            MdcSupport.clearTaskContext();
+            if (previousMdc != null) {
+                MDC.setContextMap(previousMdc);
+            } else {
+                MDC.clear();
+            }
         }
     }
 
@@ -61,6 +67,9 @@ public class OpenCodeClient {
         int continueCount = 0;
         int finalExitCode = 0;
         int maxContinues = config.getMaxContinues();
+
+        log.debug("Opencode run starting: taskId={}, agentType={}, model={}, prompt={}",
+                taskId, agentType, request.model(), LogSanitizer.truncatePrompt(request.prompt()));
 
         for (int attempt = 0; attempt <= maxContinues; attempt++) {
             String prompt = (attempt == 0) ? request.prompt() : CONTINUE_PROMPT;
@@ -150,6 +159,8 @@ public class OpenCodeClient {
             errFile = Files.createTempFile("opencode-stderr-", ".log");
             pb.redirectOutput(outFile.toFile());
             pb.redirectError(errFile.toFile());
+
+            log.debug("Process environment: {}", LogSanitizer.sanitizeEnvString(formatEnv(pb.environment())));
 
             Process process = pb.start();
             pid = process.pid();
@@ -247,6 +258,19 @@ public class OpenCodeClient {
 
     private static String generateId() {
         return UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+    }
+
+    private static String formatEnv(Map<String, String> env) {
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+        for (Map.Entry<String, String> entry : env.entrySet()) {
+            if (!first) {
+                sb.append(", ");
+            }
+            sb.append(entry.getKey()).append("=").append(entry.getValue());
+            first = false;
+        }
+        return sb.toString();
     }
 
     private record RunResult(String output, int exitCode) {
