@@ -151,6 +151,37 @@ class AgentOutputExtractorTest {
             assertThat(result.result().reason()).contains("{braces}");
             assertThat(result.result().plan()).contains("{the}");
         }
+
+        @Test
+        void shouldExtractValidJsonFromMultipleCodeBlocks() {
+            String json = """
+                    Here's my first thought:
+                    ```json
+                    {not valid}
+                    ```
+
+                    Actually, the correct analysis is:
+                    ```json
+                    {"complexity":"simple","split":false,"reason":"Clear scope","plan":"Add validation"}
+                    ```
+                    """;
+            String output = wrapInNdjson(json);
+
+            ExtractionResult<PlannerResult> result = extractor.extractPlannerResult(createRun(output));
+
+            assertThat(result.hasCriticalError()).isFalse();
+            assertThat(result.result().complexity()).isEqualTo("simple");
+            assertThat(result.result().plan()).isEqualTo("Add validation");
+        }
+
+        @Test
+        void shouldReturnCriticalErrorForEmptyJsonObject() {
+            String output = ndjsonWithText("{}");
+
+            ExtractionResult<PlannerResult> result = extractor.extractPlannerResult(createRun(output));
+
+            assertThat(result.hasCriticalError()).isTrue();
+        }
     }
 
     @Nested
@@ -299,6 +330,34 @@ class AgentOutputExtractorTest {
 
             assertThat(result.hasCriticalError()).isFalse();
             assertThat(result.result().testCommand()).contains("mvn test");
+        }
+
+        @Test
+        void shouldExtractCaseInsensitivePassClassification() {
+            String text = """
+                    Test command: `mvn test`
+                    Result classification: pass
+                    """;
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<TestWriterResult> result = extractor.extractTestWriterResult(createRun("test_writer", output));
+
+            assertThat(result.hasCriticalError()).isFalse();
+            assertThat(result.result().resultClassification()).isEqualTo("PASS");
+        }
+
+        @Test
+        void shouldExtractCaseInsensitiveExpectedRedClassification() {
+            String text = """
+                    Test command: `mvn test`
+                    Result classification: expected_red
+                    """;
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<TestWriterResult> result = extractor.extractTestWriterResult(createRun("test_writer", output));
+
+            assertThat(result.hasCriticalError()).isFalse();
+            assertThat(result.result().resultClassification()).isEqualTo("EXPECTED_RED");
         }
     }
 
@@ -539,6 +598,7 @@ class AgentOutputExtractorTest {
             assertThat(result.result().summary()).contains("Updated the handler");
             assertThat(result.result().filesChanged()).hasSize(2);
             assertThat(result.result().testCommand()).contains("mvn test");
+            assertThat(result.result().testResult()).contains("All tests passed");
             assertThat(result.result().commitHash()).isEqualTo("def5678");
         }
 
@@ -592,6 +652,22 @@ class AgentOutputExtractorTest {
 
             assertThat(result.hasCriticalError()).isFalse();
             assertThat(result.result().filesChanged()).contains("src/main/Validator.java");
+        }
+
+        @Test
+        void shouldExtractCoderWithLabeledTestResult() {
+            String text = """
+                    Summary: Fixed null pointer bug
+
+                    Test command: `gradle test`
+                    Test result: 12 tests passed
+                    """;
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<CoderResult> result = extractor.extractCoderResult(createRun("coder", output));
+
+            assertThat(result.hasCriticalError()).isFalse();
+            assertThat(result.result().testResult()).contains("12 tests passed");
         }
     }
 
@@ -997,6 +1073,39 @@ class AgentOutputExtractorTest {
             ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
                     createRun("reviewer", output), "reviewer-1");
             assertThat(result.result().category()).isEqualTo("implementation_issue");
+        }
+
+        @Test
+        void shouldExtractFeedbackBodyExcludingVerdictLine() {
+            String text = """
+                    REQUEST_CHANGES
+
+                    The implementation has issues.
+                    Fix the error handling.
+                    """;
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+
+            assertThat(result.hasCriticalError()).isFalse();
+            assertThat(result.result().feedback()).doesNotContain("REQUEST_CHANGES");
+            assertThat(result.result().feedback()).contains("The implementation has issues");
+            assertThat(result.result().feedback()).contains("Fix the error handling");
+        }
+
+        @Test
+        void shouldHandleApproveWithEmptyFeedbackAndNullCategory() {
+            String text = "APPROVE\n\nAll looks good.";
+            String output = wrapInNdjson(text);
+
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-2");
+
+            assertThat(result.hasCriticalError()).isFalse();
+            assertThat(result.result().verdict()).isEqualTo(ReviewVerdict.APPROVE);
+            assertThat(result.result().category()).isNull();
+            assertThat(result.result().reviewerId()).isEqualTo("reviewer-2");
         }
     }
 }
