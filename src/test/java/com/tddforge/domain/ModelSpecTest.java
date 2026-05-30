@@ -32,4 +32,32 @@ class ModelSpecTest {
         assertThrows(IllegalArgumentException.class,
                 () -> new ModelSpec("  ", null, null));
     }
+
+    @Test
+    void shouldAcceptEmptyVariantAndAgent() {
+        var spec = new ModelSpec("gpt-4", "", "");
+        assertEquals("gpt-4", spec.model());
+        assertEquals("", spec.variant());
+        assertEquals("", spec.agent());
+    }
+
+    @Test
+    void shouldSerializeExcludesNullVariantAndAgent() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var spec = new ModelSpec("gpt-4", null, null);
+        var json = mapper.writeValueAsString(spec);
+        assertTrue(json.contains("gpt-4"));
+        assertFalse(json.contains("variant"));
+        assertFalse(json.contains("agent"));
+    }
+
+    @Test
+    void shouldSerializeIncludesNonNullVariantAndAgent() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var spec = new ModelSpec("gpt-4", "v1", "coder");
+        var json = mapper.writeValueAsString(spec);
+        assertTrue(json.contains("gpt-4"));
+        assertTrue(json.contains("v1"));
+        assertTrue(json.contains("coder"));
+    }
 }
