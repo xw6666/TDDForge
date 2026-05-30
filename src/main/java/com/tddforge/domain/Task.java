@@ -126,6 +126,9 @@ public class Task {
         this.priority = TaskPriority.MEDIUM;
         this.source = TaskSource.MANUAL;
         this.taskMode = "develop";
+        this.branchName = "";
+        this.worktreePath = "";
+        this.complexity = "";
         this.createdAt = Instant.now();
         this.updatedAt = Instant.now();
     }

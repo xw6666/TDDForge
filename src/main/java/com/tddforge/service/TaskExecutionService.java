@@ -312,6 +312,7 @@ public class TaskExecutionService {
     }
 
     private ExecutionOutcome continueAfterPlanning(Task task) {
+        saveTask(task);
         task = reloadTask(task.getId());
         if (task.getStatus() == TaskStatus.CANCELLED) {
             return new ExecutionOutcome.Cancelled(task);
