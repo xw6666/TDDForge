@@ -226,6 +226,8 @@ let searchQuery = '';
 let pollTimer = null;
 let formDirty = false;
 let isActionPending = false;
+let lastTaskDetail = null;
+let lastTaskRuns = null;
 
 const STATUSES = ['All','PENDING','PLANNING','TEST_WRITING','TEST_REVIEWING','CODING','REVIEWING','NEEDS_ARBITRATION','COMPLETED','FAILED','CANCELLED'];
 
@@ -401,6 +403,8 @@ function tr(label, value) {
 }
 
 function renderTaskDetail(t, runs) {
+  lastTaskDetail = t;
+  lastTaskRuns = runs;
   const panel = document.getElementById('detail-panel');
   const canDispatch = !isActionPending && t.status === 'PENDING';
   const canCancel = !isActionPending && t.status !== 'COMPLETED' && t.status !== 'CANCELLED';
@@ -534,6 +538,7 @@ async function doAction(action, btn, body) {
     showToast('Error: ' + e.message, 'error');
   } finally {
     isActionPending = false;
+    if (lastTaskDetail && selectedTaskId) renderTaskDetail(lastTaskDetail, lastTaskRuns);
   }
 }
 
