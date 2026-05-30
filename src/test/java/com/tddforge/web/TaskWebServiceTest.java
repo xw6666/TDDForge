@@ -127,6 +127,43 @@ class TaskWebServiceTest {
         }
 
         @Test
+        void shouldRejectCleaningPendingTask() {
+            TaskEntity entity = createTaskEntity("t6", TaskStatus.PENDING);
+            when(taskRepository.findById("t6")).thenReturn(Optional.of(entity));
+
+            assertThatThrownBy(() -> service.cleanTask("t6"))
+                    .isInstanceOf(InvalidTaskStateException.class)
+                    .hasMessageContaining("Only COMPLETED, FAILED, CANCELLED, or NEEDS_ARBITRATION");
+        }
+
+        @Test
+        void shouldRejectCleaningTestWriteFailedTask() {
+            TaskEntity entity = createTaskEntity("t7", TaskStatus.TEST_WRITE_FAILED);
+            when(taskRepository.findById("t7")).thenReturn(Optional.of(entity));
+
+            assertThatThrownBy(() -> service.cleanTask("t7"))
+                    .isInstanceOf(InvalidTaskStateException.class);
+        }
+
+        @Test
+        void shouldRejectCleaningTestReviewFailedTask() {
+            TaskEntity entity = createTaskEntity("t8", TaskStatus.TEST_REVIEW_FAILED);
+            when(taskRepository.findById("t8")).thenReturn(Optional.of(entity));
+
+            assertThatThrownBy(() -> service.cleanTask("t8"))
+                    .isInstanceOf(InvalidTaskStateException.class);
+        }
+
+        @Test
+        void shouldRejectCleaningReviewFailedTask() {
+            TaskEntity entity = createTaskEntity("t9", TaskStatus.REVIEW_FAILED);
+            when(taskRepository.findById("t9")).thenReturn(Optional.of(entity));
+
+            assertThatThrownBy(() -> service.cleanTask("t9"))
+                    .isInstanceOf(InvalidTaskStateException.class);
+        }
+
+        @Test
         void shouldAllowCleaningCompletedTask() {
             TaskEntity entity = createCompletedTaskEntity("t10");
             when(taskRepository.findById("t10")).thenReturn(Optional.of(entity));
@@ -185,6 +222,20 @@ class TaskWebServiceTest {
         }
 
         @Test
+        void shouldRefreshUpdatedAtOnClean() {
+            TaskEntity entity = createCompletedTaskEntity("t20b");
+            Instant oldUpdatedAt = entity.getUpdatedAt();
+            when(taskRepository.findById("t20b")).thenReturn(Optional.of(entity));
+
+            service.cleanTask("t20b");
+
+            ArgumentCaptor<TaskEntity> captor = ArgumentCaptor.forClass(TaskEntity.class);
+            verify(taskRepository).save(captor.capture());
+            TaskEntity saved = captor.getValue();
+            assertThat(saved.getUpdatedAt()).isAfterOrEqualTo(oldUpdatedAt);
+        }
+
+        @Test
         void shouldSkipWorktreeRemovalWhenPathIsBlank() {
             TaskEntity entity = createTaskEntity("t21", TaskStatus.COMPLETED);
             entity.setWorktreePath("");
@@ -219,6 +270,18 @@ class TaskWebServiceTest {
             assertThatThrownBy(() -> service.cleanTask("t23"))
                     .isInstanceOf(WorktreeManagerException.class)
                     .hasMessageContaining("not under configured worktree_dir");
+        }
+
+        @Test
+        void shouldRejectDeletingNonTaskBranch() {
+            TaskEntity entity = createTaskEntity("t24", TaskStatus.COMPLETED);
+            entity.setBranchName("master");
+            when(taskRepository.findById("t24")).thenReturn(Optional.of(entity));
+
+            assertThatThrownBy(() -> service.cleanTask("t24"))
+                    .isInstanceOf(InvalidTaskStateException.class)
+                    .hasMessageContaining("Refusing to delete non-task branch")
+                    .hasMessageContaining("master");
         }
 
         @Test
@@ -291,6 +354,7 @@ class TaskWebServiceTest {
         @Test
         void shouldPersistPublishedAtAfterSuccessfulPublish() {
             TaskEntity entity = createCompletedTaskEntity("p20");
+            Instant oldUpdatedAt = entity.getUpdatedAt();
             when(taskRepository.findById("p20")).thenReturn(Optional.of(entity));
             when(worktreeManager.publish("task/p20/test-task")).thenReturn("push output");
 
@@ -302,6 +366,7 @@ class TaskWebServiceTest {
             TaskEntity saved = captor.getValue();
             assertThat(saved.getPublishedAt()).isNotNull();
             assertThat(saved.getPublishedAt()).isAfterOrEqualTo(before);
+            assertThat(saved.getUpdatedAt()).isAfterOrEqualTo(oldUpdatedAt);
         }
 
         @Test

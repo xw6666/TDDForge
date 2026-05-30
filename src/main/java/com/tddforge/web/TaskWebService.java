@@ -156,13 +156,18 @@ public class TaskWebService {
                 .orElseThrow(() -> new TaskNotFoundException(id));
 
         Task task = entity.toDomain();
-        if (task.getStatus() == TaskStatus.PLANNING ||
-            task.getStatus() == TaskStatus.TEST_WRITING ||
-            task.getStatus() == TaskStatus.TEST_REVIEWING ||
-            task.getStatus() == TaskStatus.CODING ||
-            task.getStatus() == TaskStatus.REVIEWING) {
+        if (task.getStatus() != TaskStatus.COMPLETED &&
+            task.getStatus() != TaskStatus.FAILED &&
+            task.getStatus() != TaskStatus.CANCELLED &&
+            task.getStatus() != TaskStatus.NEEDS_ARBITRATION) {
             throw new InvalidTaskStateException(id, task.getStatus(), "clean",
-                    "Cannot clean task in active status: " + task.getStatus());
+                    "Only COMPLETED, FAILED, CANCELLED, or NEEDS_ARBITRATION tasks can be cleaned, current status: " + task.getStatus());
+        }
+
+        if (task.getBranchName() != null && !task.getBranchName().isBlank()
+                && !task.getBranchName().startsWith("task/")) {
+            throw new InvalidTaskStateException(id, task.getStatus(), "clean",
+                    "Refusing to delete non-task branch: " + task.getBranchName());
         }
 
         if (task.getWorktreePath() != null && !task.getWorktreePath().isBlank()) {
