@@ -3,8 +3,11 @@ package com.tddforge.opencode;
 import com.tddforge.config.OpencodeConfig;
 import com.tddforge.domain.AgentRun;
 import com.tddforge.domain.OpenCodeRequest;
+import com.tddforge.util.LogSanitizer;
+import com.tddforge.util.MdcSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -43,6 +46,21 @@ public class OpenCodeClient {
     }
 
     public AgentRun run(String taskId, String agentType, OpenCodeRequest request) {
+        Map<String, String> previousMdc = MDC.getCopyOfContextMap();
+        MdcSupport.setTaskContext(taskId);
+        MdcSupport.setAgentContext(agentType, request.model());
+        try {
+            return doRun(taskId, agentType, request);
+        } finally {
+            if (previousMdc != null) {
+                MDC.setContextMap(previousMdc);
+            } else {
+                MDC.clear();
+            }
+        }
+    }
+
+    private AgentRun doRun(String taskId, String agentType, OpenCodeRequest request) {
         Instant startTime = Instant.now();
         String accumulatedOutput = "";
         String sessionId = request.sessionId();
@@ -50,11 +68,15 @@ public class OpenCodeClient {
         int finalExitCode = 0;
         int maxContinues = config.getMaxContinues();
 
+        log.debug("Opencode run starting: taskId={}, agentType={}, model={}, prompt={}",
+                taskId, agentType, request.model(), LogSanitizer.truncatePrompt(request.prompt()));
+
         for (int attempt = 0; attempt <= maxContinues; attempt++) {
             String prompt = (attempt == 0) ? request.prompt() : CONTINUE_PROMPT;
 
             List<String> command = buildCommand(request, sessionId, prompt);
-            log.info("Running opencode (attempt {}/{}): {}", attempt, maxContinues, String.join(" ", command));
+            log.info("Running opencode attempt {}/{}: model={}, worktree={}",
+                    attempt, maxContinues, request.model(), request.worktreeDir());
 
             RunResult result = executeProcess(taskId, request.worktreeDir(), command, request.timeoutSeconds());
             String attemptOutput = result.output();
@@ -71,6 +93,7 @@ public class OpenCodeClient {
 
             if (parsed.sessionId() != null && !parsed.sessionId().isBlank()) {
                 sessionId = parsed.sessionId();
+                MdcSupport.setSessionId(sessionId);
             }
 
             if (exitNormally(finalExitCode, parsed, sessionId, attempt, maxContinues)) {
@@ -84,6 +107,11 @@ public class OpenCodeClient {
 
         Instant endTime = Instant.now();
         long durationMs = endTime.toEpochMilli() - startTime.toEpochMilli();
+
+        MdcSupport.setRunMetrics(durationMs, finalExitCode);
+        MdcSupport.setContinueCount(continueCount);
+        log.info("Opencode run completed: exitCode={}, durationMs={}, sessionId={}, continueCount={}",
+                finalExitCode, durationMs, sessionId, continueCount);
 
         return new AgentRun(
                 generateId(),
@@ -132,6 +160,8 @@ public class OpenCodeClient {
             pb.redirectOutput(outFile.toFile());
             pb.redirectError(errFile.toFile());
 
+            log.debug("Process environment: {}", LogSanitizer.sanitizeEnvString(formatEnv(pb.environment())));
+
             Process process = pb.start();
             pid = process.pid();
             runningProcesses.put(taskId, process);
@@ -152,7 +182,7 @@ public class OpenCodeClient {
             String stderr = Files.readString(errFile).trim();
 
             if (!stderr.isEmpty()) {
-                log.warn("Opencode stderr (PID {}): {}", pid, stderr);
+                log.warn("Opencode stderr (PID {}): {}", pid, LogSanitizer.truncateOutput(stderr));
             }
 
             if (exitCode != 0 && !stderr.isEmpty()) {
@@ -228,6 +258,19 @@ public class OpenCodeClient {
 
     private static String generateId() {
         return UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+    }
+
+    private static String formatEnv(Map<String, String> env) {
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+        for (Map.Entry<String, String> entry : env.entrySet()) {
+            if (!first) {
+                sb.append(", ");
+            }
+            sb.append(entry.getKey()).append("=").append(entry.getValue());
+            first = false;
+        }
+        return sb.toString();
     }
 
     private record RunResult(String output, int exitCode) {

@@ -49,4 +49,24 @@ class TddForgeApplicationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"));
     }
+
+    @Test
+    void healthEndpointShouldIncludeDetails() throws Exception {
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.components").exists());
+    }
+
+    @Test
+    void metricsEndpointShouldBeAccessible() throws Exception {
+        mockMvc.perform(get("/actuator/metrics"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void infoEndpointShouldBeAccessible() throws Exception {
+        mockMvc.perform(get("/actuator/info"))
+                .andExpect(status().isOk());
+    }
 }
