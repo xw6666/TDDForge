@@ -116,12 +116,13 @@ public class BeanConfig {
             WorktreeManager worktreeManager,
             OrchestratorConfig orchestratorConfig,
             OpencodeConfig opencodeConfig,
+            RuntimeModelConfig runtimeModelConfig,
             RepoConfig repoConfig) {
         return new TaskExecutionService(
                 taskRepository, agentRunRepository, taskEventRepository,
                 plannerAgent, testWriterAgent, testReviewerAgent, coderAgent, reviewerAgent,
                 plannerService, dependencyTracker, worktreeManager,
-                orchestratorConfig, opencodeConfig, repoConfig);
+                orchestratorConfig, opencodeConfig, runtimeModelConfig, repoConfig);
     }
 
     @Bean

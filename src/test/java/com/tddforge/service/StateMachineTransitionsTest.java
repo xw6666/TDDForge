@@ -4,6 +4,7 @@ import com.tddforge.agent.*;
 import com.tddforge.config.OpencodeConfig;
 import com.tddforge.config.OrchestratorConfig;
 import com.tddforge.config.RepoConfig;
+import com.tddforge.config.RuntimeModelConfig;
 import com.tddforge.domain.*;
 import com.tddforge.git.WorktreeManager;
 import com.tddforge.persistence.AgentRunEntity;
@@ -50,6 +51,7 @@ class StateMachineTransitionsTest {
     private AgentOutputExtractor realExtractor;
     private PlannerService plannerService;
     private OpencodeConfig opencodeConfig;
+    private RuntimeModelConfig runtimeModelConfig;
     private OrchestratorConfig orchestratorConfig;
     private RepoConfig repoConfig;
     private DependencyTracker dependencyTracker;
@@ -85,11 +87,14 @@ class StateMachineTransitionsTest {
 
         dependencyTracker = new DependencyTracker(taskRepository);
 
+        runtimeModelConfig = new RuntimeModelConfig(opencodeConfig);
+        runtimeModelConfig.init();
+
         service = new TaskExecutionService(
                 taskRepository, agentRunRepository, taskEventRepository,
                 plannerAgent, testWriterAgent, testReviewerAgent, coderAgent, reviewerAgent,
                 plannerService, dependencyTracker, worktreeManager,
-                orchestratorConfig, opencodeConfig, repoConfig
+                orchestratorConfig, opencodeConfig, runtimeModelConfig, repoConfig
         );
     }
 
@@ -954,6 +959,7 @@ class StateMachineTransitionsTest {
             com.tddforge.config.ModelSpec r2 = new com.tddforge.config.ModelSpec();
             r2.setModel("reviewer-2");
             opencodeConfig.setReviewers(List.of(r1, r2));
+            runtimeModelConfig.setReviewers(List.of(r1, r2));
 
             setupPlannerMock("{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Simple\",\"plan\":\"Do it\"}");
             setupWorktreeMock();
@@ -987,6 +993,7 @@ class StateMachineTransitionsTest {
             com.tddforge.config.ModelSpec r2 = new com.tddforge.config.ModelSpec();
             r2.setModel("reviewer-2");
             opencodeConfig.setReviewers(List.of(r1, r2));
+            runtimeModelConfig.setReviewers(List.of(r1, r2));
 
             setupPlannerMock("{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Simple\",\"plan\":\"Do it\"}");
             setupWorktreeMock();

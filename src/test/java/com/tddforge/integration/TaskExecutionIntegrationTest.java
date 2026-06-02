@@ -4,6 +4,7 @@ import com.tddforge.agent.*;
 import com.tddforge.config.OpencodeConfig;
 import com.tddforge.config.OrchestratorConfig;
 import com.tddforge.config.RepoConfig;
+import com.tddforge.config.RuntimeModelConfig;
 import com.tddforge.domain.*;
 import com.tddforge.git.WorktreeManager;
 import com.tddforge.opencode.OpenCodeClient;
@@ -139,11 +140,14 @@ class TaskExecutionIntegrationTest {
         });
         entityManager.clear();
 
+        RuntimeModelConfig runtimeModelConfig = new RuntimeModelConfig(opencodeConfig);
+        runtimeModelConfig.init();
+
         service = new TaskExecutionService(
                 taskRepository, agentRunRepository, taskEventRepository,
                 plannerAgent, testWriterAgent, testReviewerAgent, coderAgent, reviewerAgent,
                 plannerService, dependencyTracker, worktreeManager,
-                orchestratorConfig, opencodeConfig, repoConfig
+                orchestratorConfig, opencodeConfig, runtimeModelConfig, repoConfig
         );
 
         when(worktreeManager.generateBranchName(any(), any())).thenReturn("task/integration/test");
@@ -707,11 +711,14 @@ class TaskExecutionIntegrationTest {
             PlannerResultProcessor processor = new PlannerResultProcessor(new PlannerResultProcessor.DefaultIdGenerator());
             PlannerService realPlannerService = new PlannerService(extractor, validator, processor);
 
+            RuntimeModelConfig e2eRuntimeModelConfig = new RuntimeModelConfig(fakeConfig);
+            e2eRuntimeModelConfig.init();
+
             e2eService = new TaskExecutionService(
                     taskRepository, agentRunRepository, taskEventRepository,
                     realPlanner, realTestWriter, realTestReviewer, realCoder, realReviewer,
                     realPlannerService, dependencyTracker, worktreeManager,
-                    orchestratorConfig, fakeConfig, repoConfig
+                    orchestratorConfig, fakeConfig, e2eRuntimeModelConfig, repoConfig
             );
         }
 
