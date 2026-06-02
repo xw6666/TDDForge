@@ -21,7 +21,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(TaskController.class)
+@WebMvcTest({TaskController.class, WelcomeController.class})
 class TaskControllerTest {
 
     @Autowired
@@ -498,7 +498,14 @@ class TaskControllerTest {
             mockMvc.perform(get("/dashboard.html"))
                     .andExpect(status().isOk())
                     .andExpect(content().contentType("text/html"))
-                    .andExpect(content().string(containsString("TDDForge Dashboard")));
+                    .andExpect(content().string(containsString("TDDForge Console")));
+        }
+
+        @Test
+        void shouldServeIndexHtmlAtRoot() throws Exception {
+            mockMvc.perform(get("/"))
+                    .andExpect(status().is3xxRedirection())
+                    .andExpect(redirectedUrl("/dashboard.html"));
         }
     }
 }
