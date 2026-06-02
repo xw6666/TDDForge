@@ -1,9 +1,11 @@
 package com.tddforge.service;
 
 import com.tddforge.agent.*;
+import com.tddforge.config.ModelConfigSnapshot;
 import com.tddforge.config.OpencodeConfig;
 import com.tddforge.config.OrchestratorConfig;
 import com.tddforge.config.RepoConfig;
+import com.tddforge.config.RuntimeModelConfig;
 import com.tddforge.domain.*;
 import com.tddforge.git.WorktreeManager;
 import com.tddforge.persistence.AgentRunEntity;
@@ -44,6 +46,7 @@ public class TaskExecutionService {
     private final WorktreeManager worktreeManager;
     private final OrchestratorConfig orchestratorConfig;
     private final OpencodeConfig opencodeConfig;
+    private final RuntimeModelConfig runtimeModelConfig;
     private final RepoConfig repoConfig;
 
     public TaskExecutionService(TaskRepository taskRepository,
@@ -59,6 +62,7 @@ public class TaskExecutionService {
                                 WorktreeManager worktreeManager,
                                 OrchestratorConfig orchestratorConfig,
                                 OpencodeConfig opencodeConfig,
+                                RuntimeModelConfig runtimeModelConfig,
                                 RepoConfig repoConfig) {
         this.taskRepository = taskRepository;
         this.agentRunRepository = agentRunRepository;
@@ -73,6 +77,7 @@ public class TaskExecutionService {
         this.worktreeManager = worktreeManager;
         this.orchestratorConfig = orchestratorConfig;
         this.opencodeConfig = opencodeConfig;
+        this.runtimeModelConfig = runtimeModelConfig;
         this.repoConfig = repoConfig;
     }
 
@@ -228,7 +233,8 @@ public class TaskExecutionService {
             return new ExecutionOutcome.Cancelled(task);
         }
 
-        ModelSpec modelSpec = toDomainModelSpec(opencodeConfig.getPlanner());
+        ModelConfigSnapshot snapshot = runtimeModelConfig.snapshot();
+        ModelSpec modelSpec = toDomainModelSpec(snapshot.planner());
         long timeout = opencodeConfig.getTimeoutSeconds();
         MdcSupport.setAgentContext("planner", modelSpec.model());
         log.info("Starting planning phase: taskId={}, model={}", task.getId(), modelSpec.model());
@@ -382,7 +388,8 @@ private ExecutionOutcome runTestWriting(Task task) {
             return new ExecutionOutcome.Failed(task, error);
         }
 
-        ModelSpec modelSpec = toDomainModelSpec(opencodeConfig.getTestWriter());
+        ModelConfigSnapshot snapshot = runtimeModelConfig.snapshot();
+        ModelSpec modelSpec = toDomainModelSpec(snapshot.testWriter());
         long timeout = opencodeConfig.getTimeoutSeconds();
         MdcSupport.setAgentContext("test_writer", modelSpec.model());
         MdcSupport.setWorktreeContext(worktreePath, task.getBranchName());
@@ -480,7 +487,8 @@ private ExecutionOutcome runTestWriting(Task task) {
         task = moveToStatus(task, TaskStatus.TEST_REVIEWING);
 
         String worktreePath = task.getWorktreePath();
-        ModelSpec modelSpec = toDomainModelSpec(opencodeConfig.getTestReviewer());
+        ModelConfigSnapshot snapshot = runtimeModelConfig.snapshot();
+        ModelSpec modelSpec = toDomainModelSpec(snapshot.testReviewer());
         long timeout = opencodeConfig.getTimeoutSeconds();
         MdcSupport.setAgentContext("test_reviewer", modelSpec.model());
         MdcSupport.setWorktreeContext(worktreePath, task.getBranchName());
@@ -862,22 +870,25 @@ private ExecutionOutcome runTestWriting(Task task) {
     }
 
     private ModelSpec getCoderModelSpec(Task task) {
+        ModelConfigSnapshot snapshot = runtimeModelConfig.snapshot();
         String complexity = task.getComplexity();
         if (complexity != null && !complexity.isBlank()) {
-            com.tddforge.config.ModelSpec byComplexity = opencodeConfig.getCoderByComplexity().get(complexity);
+            com.tddforge.config.ModelSpec byComplexity = snapshot.coderByComplexity().get(complexity);
             if (byComplexity != null) {
                 return toDomainModelSpec(byComplexity);
             }
         }
-        return toDomainModelSpec(opencodeConfig.getCoderDefault());
+        return toDomainModelSpec(snapshot.coderDefault());
     }
 
     private List<com.tddforge.config.ModelSpec> getReviewerModelSpecList() {
-        List<com.tddforge.config.ModelSpec> reviewers = opencodeConfig.getReviewers();
+        ModelConfigSnapshot snapshot = runtimeModelConfig.snapshot();
+        List<com.tddforge.config.ModelSpec> reviewers = snapshot.reviewers();
         if (reviewers != null && !reviewers.isEmpty()) {
             return reviewers;
         }
-        return List.of(opencodeConfig.getCoderDefault());
+        log.warn("No reviewers configured, falling back to coderDefault model for review");
+        return List.of(snapshot.coderDefault());
     }
 
     private String getLatestReviewFeedback(Task task) {

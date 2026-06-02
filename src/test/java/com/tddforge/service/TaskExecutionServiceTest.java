@@ -4,6 +4,7 @@ import com.tddforge.agent.*;
 import com.tddforge.config.OpencodeConfig;
 import com.tddforge.config.OrchestratorConfig;
 import com.tddforge.config.RepoConfig;
+import com.tddforge.config.RuntimeModelConfig;
 import com.tddforge.domain.*;
 import com.tddforge.git.WorktreeManager;
 import com.tddforge.persistence.AgentRunEntity;
@@ -52,6 +53,7 @@ class TaskExecutionServiceTest {
     private AgentOutputExtractor realExtractor;
     private PlannerService plannerService;
     private OpencodeConfig opencodeConfig;
+    private RuntimeModelConfig runtimeModelConfig;
     private OrchestratorConfig orchestratorConfig;
     private RepoConfig repoConfig;
     private DependencyTracker dependencyTracker;
@@ -87,11 +89,14 @@ class TaskExecutionServiceTest {
 
         dependencyTracker = new DependencyTracker(taskRepository);
 
+        runtimeModelConfig = new RuntimeModelConfig(opencodeConfig);
+        runtimeModelConfig.init();
+
         service = new TaskExecutionService(
                 taskRepository, agentRunRepository, taskEventRepository,
                 plannerAgent, testWriterAgent, testReviewerAgent, coderAgent, reviewerAgent,
                 plannerService, dependencyTracker, worktreeManager,
-                orchestratorConfig, opencodeConfig, repoConfig
+                orchestratorConfig, opencodeConfig, runtimeModelConfig, repoConfig
         );
     }
 
@@ -584,6 +589,7 @@ class TaskExecutionServiceTest {
             com.tddforge.config.ModelSpec reviewer2Spec = new com.tddforge.config.ModelSpec();
             reviewer2Spec.setModel("reviewer-model-2");
             opencodeConfig.setReviewers(List.of(reviewer1Spec, reviewer2Spec));
+            runtimeModelConfig.setReviewers(List.of(reviewer1Spec, reviewer2Spec));
 
             String plannerJson = "{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Simple\",\"plan\":\"Do the thing\"}";
             AgentRun plannerRun = createAgentRun(ndjsonWithText(plannerJson), 0);
@@ -640,6 +646,7 @@ class TaskExecutionServiceTest {
             com.tddforge.config.ModelSpec reviewer2Spec = new com.tddforge.config.ModelSpec();
             reviewer2Spec.setModel("reviewer-model-2");
             opencodeConfig.setReviewers(List.of(reviewer1Spec, reviewer2Spec));
+            runtimeModelConfig.setReviewers(List.of(reviewer1Spec, reviewer2Spec));
 
             String plannerJson = "{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Simple\",\"plan\":\"Do the thing\"}";
             AgentRun plannerRun = createAgentRun(ndjsonWithText(plannerJson), 0);
