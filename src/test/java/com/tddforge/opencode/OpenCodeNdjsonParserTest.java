@@ -172,6 +172,20 @@ class OpenCodeNdjsonParserTest {
     }
 
     @Test
+    void shouldExposeLastTextEventSeparately() {
+        String output = """
+                {"type":"text","text":"Intermediate note"}
+                {"type":"text","text":"APPROVE\\nFinal reviewer response"}
+                {"type":"step_finish","step_finish":{"reason":"stop"}}
+                """.stripIndent();
+
+        OpenCodeResult result = parser.parse(output);
+
+        assertThat(result.text()).contains("Intermediate note").contains("APPROVE");
+        assertThat(result.lastText()).isEqualTo("APPROVE\nFinal reviewer response");
+    }
+
+    @Test
     void shouldGenerateReadableSteps() {
         String output = """
                 {"type":"step_start","step_start":{"type":"thinking"}}

@@ -224,6 +224,9 @@ public class AgentOutputExtractor {
         }
         OpenCodeNdjsonParser parser = new OpenCodeNdjsonParser();
         OpenCodeResult parsed = parser.parse(rawOutput);
+        if (parsed.lastText() != null && !parsed.lastText().isBlank()) {
+            return parsed.lastText();
+        }
         return parsed.text();
     }
 

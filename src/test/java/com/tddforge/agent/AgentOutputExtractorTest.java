@@ -693,6 +693,22 @@ class AgentOutputExtractorTest {
         }
 
         @Test
+        void shouldUseLastTextEventForReviewerVerdict() {
+            String output = """
+                    {"type":"text","part":{"type":"text","text":"All tests pass. Let me review the implementation."}}
+                    {"type":"text","part":{"type":"text","text":"APPROVE\\n\\nImplementation looks correct."}}
+                    {"type":"step_finish","part":{"type":"step-finish","reason":"stop"}}
+                    """.stripIndent();
+
+            ExtractionResult<ReviewerResult> result = extractor.extractReviewerResult(
+                    createRun("reviewer", output), "reviewer-1");
+
+            assertThat(result.hasCriticalError()).isFalse();
+            assertThat(result.result().verdict()).isEqualTo(ReviewVerdict.APPROVE);
+            assertThat(result.result().feedback()).contains("Implementation looks correct");
+        }
+
+        @Test
         void shouldClassifyTestIssue() {
             String text = """
                     REQUEST_CHANGES
