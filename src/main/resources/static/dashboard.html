@@ -137,7 +137,7 @@
     letter-spacing: 0;
   }
   .refresh-indicator { font-size: 11px; color: var(--muted); white-space: nowrap; }
-  .btn-new-task, .btn-system, .sys-btn, .modal-footer .btn-submit, .sys-modal-footer .btn-save, .actions button.primary {
+  .btn-new-task, .btn-system, .sys-btn, .modal-footer .btn-submit, .sys-modal-footer .btn-save, .actions button.primary, .revise-form .btn-row button.primary {
     min-height: 32px;
     padding: 7px 13px;
     border: 1px solid var(--accent-dark);
@@ -149,13 +149,13 @@
     font-weight: 700;
     box-shadow: var(--shadow-tiny);
   }
-  .btn-new-task:hover, .btn-system:hover, .sys-btn:hover, .modal-footer .btn-submit:hover, .sys-modal-footer .btn-save:hover, .actions button.primary:hover:not(:disabled) {
+  .btn-new-task:hover, .btn-system:hover, .sys-btn:hover, .modal-footer .btn-submit:hover, .sys-modal-footer .btn-save:hover, .actions button.primary:hover:not(:disabled), .revise-form .btn-row button.primary:hover:not(:disabled) {
     background: var(--accent-dark);
     transform: translateY(-1px);
   }
 
   .search-row { margin-bottom: 10px; }
-  .search-row input, .form-group input, .form-group textarea, .form-group select, .sys-card .sys-row select, .sys-card .sys-row input, .sys-reviewer-row select, .sys-reviewer-row input {
+  .search-row input, .form-group input, .form-group textarea, .revise-form textarea, .form-group select, .sys-card .sys-row select, .sys-card .sys-row input, .sys-reviewer-row select, .sys-reviewer-row input {
     width: 100%;
     padding: 8px 10px;
     border: 1px solid var(--line);
@@ -164,8 +164,8 @@
     color: var(--ink);
     font-size: 12px;
   }
-  .search-row input::placeholder, .form-group input::placeholder, .form-group textarea::placeholder { color: var(--muted); }
-  .search-row input:focus, .form-group input:focus, .form-group textarea:focus, .form-group select:focus, .sys-card .sys-row select:focus, .sys-card .sys-row input:focus {
+  .search-row input::placeholder, .form-group input::placeholder, .form-group textarea::placeholder, .revise-form textarea::placeholder { color: var(--muted); }
+  .search-row input:focus, .form-group input:focus, .form-group textarea:focus, .revise-form textarea:focus, .form-group select:focus, .sys-card .sys-row select:focus, .sys-card .sys-row input:focus {
     border-color: var(--accent);
     background: var(--surface);
   }
@@ -306,7 +306,7 @@
     border-color: var(--accent);
     transform: translateY(-1px);
   }
-  .actions button:disabled, .modal-footer button:disabled, .sys-modal-footer button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+  .actions button:disabled, .modal-footer button:disabled, .sys-modal-footer button:disabled, .revise-form .btn-row button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
   .actions button.loading { opacity: 0.62; cursor: wait; }
   .actions button.danger { color: var(--danger); border-color: #D8A79B; }
   .actions button.danger:hover:not(:disabled) { background: var(--danger-bg); }
@@ -416,10 +416,30 @@
   .event-kv b { color: var(--ink); }
   .copy-btn { min-height: 22px; padding: 2px 6px; font-size: 10px; margin-left: 4px; }
 
-  .revise-form { margin-bottom: 14px; padding: 14px; }
-  .revise-form label, .form-group label { font-size: 12px; font-weight: 800; color: var(--ink-soft); display: block; margin-bottom: 6px; }
+  .revise-form {
+    margin-bottom: 14px;
+    padding: 15px;
+    background:
+      linear-gradient(180deg, rgba(255, 253, 248, 0.94), rgba(245, 240, 232, 0.84)),
+      radial-gradient(circle at 16px 16px, rgba(204, 120, 92, 0.08) 0 1px, transparent 1px);
+    background-size: auto, 18px 18px;
+    border-color: #D7BDA8;
+    box-shadow: 0 10px 24px rgba(94, 63, 43, 0.08);
+  }
+  .revise-form label, .form-group label {
+    font-size: 12px;
+    font-weight: 900;
+    color: var(--ink);
+    display: block;
+    margin-bottom: 7px;
+  }
   .revise-form textarea, .form-group textarea { min-height: 84px; resize: vertical; }
-  .revise-form .btn-row { margin-top: 8px; display: flex; gap: 8px; }
+  .revise-form textarea {
+    min-height: 108px;
+    line-height: 1.55;
+    box-shadow: inset 0 1px 0 rgba(255, 253, 248, 0.9);
+  }
+  .revise-form .btn-row { margin-top: 10px; display: flex; gap: 8px; justify-content: flex-end; }
 
   .modal-overlay, .sys-modal-overlay {
     display: none;
@@ -1040,7 +1060,7 @@ function renderTaskDetail(t, runs) {
   const savedPanelScrollTop = panelScrollState.get(t.id);
   const canDispatch = !isActionPending && t.status === 'PENDING';
   const canCancel = !isActionPending && t.status !== 'COMPLETED' && t.status !== 'CANCELLED';
-  const canRevise = !isActionPending && t.status === 'NEEDS_ARBITRATION';
+  const canRevise = !isActionPending && ['NEEDS_ARBITRATION', 'FAILED'].includes(t.status);
   const canClean = !isActionPending && ['COMPLETED', 'FAILED', 'CANCELLED', 'NEEDS_ARBITRATION'].includes(t.status);
   const canPublish = !isActionPending && t.status === 'COMPLETED';
 
