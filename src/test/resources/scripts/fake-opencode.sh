@@ -3,7 +3,11 @@
 # Detects "Continue" prompt to simulate auto-continue behavior.
 # For simple static modes, use the dedicated scripts below.
 
-PROMPT="${@: -1}"
+STDIN_PROMPT="$(cat)"
+PROMPT="$STDIN_PROMPT"
+if [ -z "$PROMPT" ]; then
+  PROMPT="${@: -1}"
+fi
 
 if [[ "$PROMPT" == "Continue" ]]; then
   cat << 'ENDJSON'

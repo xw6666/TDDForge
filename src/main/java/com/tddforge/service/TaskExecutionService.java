@@ -8,6 +8,7 @@ import com.tddforge.config.RepoConfig;
 import com.tddforge.config.RuntimeModelConfig;
 import com.tddforge.domain.*;
 import com.tddforge.git.WorktreeManager;
+import com.tddforge.opencode.OpenCodeNdjsonParser;
 import com.tddforge.persistence.AgentRunEntity;
 import com.tddforge.persistence.AgentRunRepository;
 import com.tddforge.persistence.TaskEntity;
@@ -398,7 +399,7 @@ private ExecutionOutcome runTestWriting(Task task) {
 
         AgentContext context = new AgentContext(
                 task.getId(), Path.of(worktreePath), null, modelSpec,
-                task.getTitle(), task.getDescription(), task.getRepoPath(), timeout,
+                task.getTitle(), task.getDescription(), worktreePath, timeout,
                 task.isForceNoSplit(), task.getPlanOutput(),
                 task.getTestOutput() != null ? task.getTestOutput() : null,
                 task.getTestReviewOutput() != null ? task.getTestReviewOutput() : null,
@@ -433,7 +434,7 @@ private ExecutionOutcome runTestWriting(Task task) {
         }
 
         TestWriterResult twResult = result.extractionResult().result();
-        task.setTestOutput(result.agentRun().output());
+        task.setTestOutput(phaseOutput(result.agentRun()));
         task.setUpdatedAt(Instant.now());
         saveTask(task);
 
@@ -441,8 +442,17 @@ private ExecutionOutcome runTestWriting(Task task) {
             return handleTestWriteRetry(task, "TestWriter self-check result: INVALID", maxTestRetries);
         }
 
-        if (twResult.commitHash() == null || twResult.commitHash().isBlank()) {
+        String testCommitHash = twResult.commitHash();
+        if (testCommitHash == null || testCommitHash.isBlank()) {
+            testCommitHash = inferTestCommitHash(worktreePath);
+        }
+
+        if (testCommitHash == null || testCommitHash.isBlank()) {
             return handleTestWriteRetry(task, "TestWriter did not include a test commit", maxTestRetries);
+        }
+
+        if (!hasExecutableTestCommit(worktreePath, testCommitHash)) {
+            return handleTestWriteRetry(task, "TestWriter commit does not include an executable test file", maxTestRetries);
         }
 
         if ("unknown".equals(twResult.testCommand())) {
@@ -454,6 +464,71 @@ private ExecutionOutcome runTestWriting(Task task) {
         saveTask(task);
         recordEvent(task, "TEST_WRITING_PASSED", "TestWriter result: " + twResult.resultClassification());
         return new ExecutionOutcome.Success(task);
+    }
+
+    private boolean hasExecutableTestCommit(String worktreePath, String commitHash) {
+        try {
+            List<String> files = worktreeManager.committedFiles(Path.of(worktreePath), commitHash);
+            boolean hasExecutableTest = files.stream().anyMatch(this::isExecutableTestFile);
+            if (!hasExecutableTest) {
+                log.warn("TestWriter commit {} does not include executable test files: {}", commitHash, files);
+            }
+            return hasExecutableTest;
+        } catch (RuntimeException e) {
+            log.warn("Failed to inspect TestWriter commit {} in {}: {}", commitHash, worktreePath, e.getMessage());
+            return false;
+        }
+    }
+
+    private boolean isExecutableTestFile(String path) {
+        if (path == null || path.isBlank()) {
+            return false;
+        }
+        String normalized = path.replace('\\', '/').toLowerCase();
+        if (normalized.endsWith(".md") || normalized.endsWith(".txt") || normalized.endsWith(".rst")
+                || normalized.endsWith(".adoc")) {
+            return false;
+        }
+        boolean inTestLocation = normalized.startsWith("src/test/")
+                || normalized.startsWith("test/")
+                || normalized.startsWith("tests/")
+                || normalized.contains("/test/")
+                || normalized.contains("/tests/");
+        boolean hasExecutableTestExtension = normalized.endsWith(".java")
+                || normalized.endsWith(".kt")
+                || normalized.endsWith(".groovy")
+                || normalized.endsWith(".js")
+                || normalized.endsWith(".jsx")
+                || normalized.endsWith(".ts")
+                || normalized.endsWith(".tsx")
+                || normalized.endsWith(".py")
+                || normalized.endsWith(".go")
+                || normalized.endsWith(".rs")
+                || normalized.endsWith(".rb")
+                || normalized.endsWith(".php")
+                || normalized.endsWith(".cs")
+                || normalized.endsWith(".c")
+                || normalized.endsWith(".cc")
+                || normalized.endsWith(".cpp")
+                || normalized.endsWith(".h")
+                || normalized.endsWith(".hpp")
+                || normalized.endsWith(".feature");
+        return inTestLocation && hasExecutableTestExtension;
+    }
+
+    private String inferTestCommitHash(String worktreePath) {
+        try {
+            Path path = Path.of(worktreePath);
+            if (!worktreeManager.hasCommitsSinceBase(path)) {
+                return null;
+            }
+            String head = worktreeManager.currentHead(path);
+            log.info("Inferred TestWriter commit hash from worktree HEAD: {}", head);
+            return head;
+        } catch (RuntimeException e) {
+            log.warn("Failed to infer TestWriter commit hash from worktree {}: {}", worktreePath, e.getMessage());
+            return null;
+        }
     }
 
     private ExecutionOutcome handleTestWriteRetry(Task task, String reason, int maxTestRetries) {
@@ -495,7 +570,7 @@ private ExecutionOutcome runTestWriting(Task task) {
         log.info("Starting test review phase: taskId={}, model={}", task.getId(), modelSpec.model());
         AgentContext context = new AgentContext(
                 task.getId(), Path.of(worktreePath), null, modelSpec,
-                task.getTitle(), task.getDescription(), task.getRepoPath(), timeout,
+                task.getTitle(), task.getDescription(), worktreePath, timeout,
                 task.isForceNoSplit(), task.getPlanOutput(), task.getTestOutput(),
                 null, task.getTestOutput(), null, null, null, null, null, null, null, null
         );
@@ -621,7 +696,7 @@ private ExecutionOutcome runTestWriting(Task task) {
         long timeout = opencodeConfig.getTimeoutSeconds();
         AgentContext context = new AgentContext(
                 task.getId(), Path.of(worktreePath), coderSessionId, modelSpec,
-                task.getTitle(), task.getDescription(), task.getRepoPath(), timeout,
+                task.getTitle(), task.getDescription(), worktreePath, timeout,
                 task.isForceNoSplit(), task.getPlanOutput(), task.getTestOutput(),
                 task.getTestReviewOutput(), null, task.getCodeOutput(),
                 task.getReviewOutput() != null ? task.getReviewOutput() : null,
@@ -698,7 +773,7 @@ private ExecutionOutcome runTestWriting(Task task) {
         }
 
         CoderResult coderResult = result.extractionResult().result();
-        task.setCodeOutput(result.agentRun().output());
+        task.setCodeOutput(phaseOutput(result.agentRun()));
         task.setStatus(TaskStatus.REVIEWING);
         task.setUpdatedAt(Instant.now());
         saveTask(task);
@@ -735,7 +810,7 @@ private ExecutionOutcome runTestWriting(Task task) {
 
             AgentContext context = new AgentContext(
                     task.getId(), Path.of(worktreePath), null, modelSpec,
-                    task.getTitle(), task.getDescription(), task.getRepoPath(), timeout,
+                    task.getTitle(), task.getDescription(), worktreePath, timeout,
                     task.isForceNoSplit(), task.getPlanOutput(), task.getTestOutput(),
                     task.getTestReviewOutput(), null, task.getCodeOutput(),
                     priorRejections, null, null, null, reviewerId, null, null
@@ -950,6 +1025,14 @@ private ExecutionOutcome runTestWriting(Task task) {
         if (agentRun == null) return;
         AgentRunEntity entity = AgentRunEntity.fromDomain(agentRun);
         agentRunRepository.save(entity);
+    }
+
+    private String phaseOutput(AgentRun agentRun) {
+        if (agentRun == null || agentRun.output() == null || agentRun.output().isBlank()) {
+            return "";
+        }
+        String text = new OpenCodeNdjsonParser().parse(agentRun.output()).text();
+        return text == null || text.isBlank() ? agentRun.output() : text;
     }
 
     private void recordEvent(Task task, String eventType, String message) {

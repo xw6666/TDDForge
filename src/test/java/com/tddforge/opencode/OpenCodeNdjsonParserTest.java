@@ -373,4 +373,20 @@ class OpenCodeNdjsonParserTest {
         assertThat(result.readableSteps()).hasSize(1);
         assertThat(result.readableSteps().get(0)).endsWith("...");
     }
+
+    @Test
+    void shouldParseCurrentOpenCodePartEvents() {
+        String output = """
+                {"type":"step_start","timestamp":1780680815618,"sessionID":"ses-new","part":{"id":"prt-1","messageID":"msg-1","sessionID":"ses-new","snapshot":"abc","type":"step-start"}}
+                {"type":"text","timestamp":1780680817468,"sessionID":"ses-new","part":{"id":"prt-2","messageID":"msg-1","sessionID":"ses-new","type":"text","text":"{\\"complexity\\":\\"simple\\",\\"split\\":false,\\"reason\\":\\"ok\\",\\"plan\\":\\"test\\"}","time":{"start":1780680817000,"end":1780680817468}}}
+                {"type":"step_finish","timestamp":1780680817561,"sessionID":"ses-new","part":{"id":"prt-3","reason":"stop","snapshot":"abc","messageID":"msg-1","sessionID":"ses-new","type":"step-finish","tokens":{"total":10}}}
+                """.stripIndent();
+
+        OpenCodeResult result = parser.parse(output);
+
+        assertThat(result.sessionId()).isEqualTo("ses-new");
+        assertThat(result.text()).contains("\"complexity\":\"simple\"");
+        assertThat(result.complete()).isTrue();
+        assertThat(result.lastStopStepText()).contains("\"plan\":\"test\"");
+    }
 }

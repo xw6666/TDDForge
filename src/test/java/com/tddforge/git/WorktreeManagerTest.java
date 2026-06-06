@@ -329,6 +329,13 @@ class WorktreeManagerTest {
         }
 
         @Test
+        void fallsBackWhenTitleHasNoAsciiSlugCharacters() {
+            String branch = manager.generateBranchName("task-zh", "中文任务");
+
+            assertThat(branch).isEqualTo("task/task-zh/untitled");
+        }
+
+        @Test
         void truncatesLongNames() {
             String longTitle = "This is a very long task title that should be truncated to fit within the branch name length limit";
             String branch = manager.generateBranchName("task-999", longTitle);

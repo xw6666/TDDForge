@@ -3,7 +3,11 @@
 # Detects agent type from the first line of prompt content and outputs appropriate NDJSON.
 # Supports SCENARIO env var for override: SPLIT, INVALID, REJECT_TEST, REJECT_CODER, TEST_FAIL, CANCEL, TIMEOUT
 
-PROMPT="${@: -1}"
+STDIN_PROMPT="$(cat)"
+PROMPT="$STDIN_PROMPT"
+if [ -z "$PROMPT" ]; then
+  PROMPT="${@: -1}"
+fi
 SCENARIO="${SCENARIO:-auto}"
 
 # Extract first line for agent type detection (avoids false matches from embedded output)
