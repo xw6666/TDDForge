@@ -31,6 +31,7 @@ public final class ReviewerAgent extends BaseAgent<ReviewerResult> {
         vars.put("test_review_output", context.testReviewOutput() != null ? context.testReviewOutput() : "");
         vars.put("coder_response", context.coderResponse() != null ? context.coderResponse() : "");
         vars.put("prior_rejections", context.priorRejections() != null ? context.priorRejections() : "");
+        vars.put("human_revision_feedback", humanRevisionFeedbackBlock(context));
         return vars;
     }
 

@@ -121,30 +121,46 @@ public class TaskExecutionService {
             return new ExecutionOutcome.Failed(task, reason);
         }
 
-        task.setStatus(TaskStatus.PLANNING);
-        task.setStartedAt(Instant.now());
-        task.setUpdatedAt(Instant.now());
-        saveTask(task);
-        recordEvent(task, "STATUS_CHANGE", "Task entered PLANNING");
+        ExecutionOutcome outcome;
+        TaskStatus resumeStatus = determineResumeStatus(task);
+        if (resumeStatus == TaskStatus.PLANNING) {
+            task.setStatus(TaskStatus.PLANNING);
+            task.setStartedAt(Instant.now());
+            task.setUpdatedAt(Instant.now());
+            if (hasHumanRevisionFeedback(task)) {
+                task.setError(null);
+            }
+            saveTask(task);
+            recordEvent(task, "STATUS_CHANGE", "Task entered PLANNING");
 
-        ExecutionOutcome outcome = runPlanning(task);
-        if (outcome instanceof ExecutionOutcome.Cancelled) return outcome;
-        if (outcome instanceof ExecutionOutcome.Failed) {
-            handleParentAggregationOnFailure(reloadTask(taskId));
-            return outcome;
-        }
-        if (outcome instanceof ExecutionOutcome.SplitParentWaiting) return outcome;
-        if (outcome instanceof ExecutionOutcome.NeedsArbitration) {
-            handleParentAggregationOnFailure(reloadTask(taskId));
-            return outcome;
+            outcome = runPlanning(task);
+            if (outcome instanceof ExecutionOutcome.Cancelled) return outcome;
+            if (outcome instanceof ExecutionOutcome.Failed) {
+                handleParentAggregationOnFailure(reloadTask(taskId));
+                return outcome;
+            }
+            if (outcome instanceof ExecutionOutcome.SplitParentWaiting) return outcome;
+            if (outcome instanceof ExecutionOutcome.NeedsArbitration) {
+                handleParentAggregationOnFailure(reloadTask(taskId));
+                return outcome;
+            }
+
+            task = reloadTask(taskId);
+            if (task.getStatus() == TaskStatus.CANCELLED) {
+                return new ExecutionOutcome.Cancelled(task);
+            }
+        } else {
+            task.setStatus(resumeStatus);
+            task.setStartedAt(Instant.now());
+            task.setUpdatedAt(Instant.now());
+            task.setError(null);
+            saveTask(task);
+            recordEvent(task, "STATUS_CHANGE", "Task resumed from human feedback at " + resumeStatus.name());
         }
 
-        task = reloadTask(taskId);
-        if (task.getStatus() == TaskStatus.CANCELLED) {
-            return new ExecutionOutcome.Cancelled(task);
+        if (task.getStatus() == TaskStatus.PLANNING) {
+            task = moveToStatus(task, TaskStatus.TEST_WRITING);
         }
-
-        task = moveToStatus(task, TaskStatus.TEST_WRITING);
 
         while (true) {
             if (task.getStatus() == TaskStatus.CANCELLED) {
@@ -243,7 +259,8 @@ public class TaskExecutionService {
         AgentContext context = new AgentContext(
                 task.getId(), Path.of(task.getRepoPath()), null, modelSpec,
                 task.getTitle(), task.getDescription(), task.getRepoPath(), timeout,
-                task.isForceNoSplit(), null, null, null, null, null, null, null, null, null, null, null, null
+                task.isForceNoSplit(), null, null, null, null, null, null, null, null, null, null, null, null,
+                task.getUserFeedback()
         );
 
         AgentResult<PlannerResult> result;
@@ -316,6 +333,54 @@ public class TaskExecutionService {
                 yield new ExecutionOutcome.Failed(fTask, error);
             }
         };
+    }
+
+    private TaskStatus determineResumeStatus(Task task) {
+        if (!hasHumanRevisionFeedback(task)) {
+            return TaskStatus.PLANNING;
+        }
+        if (isBlank(task.getWorktreePath()) || isBlank(task.getPlanOutput())) {
+            return TaskStatus.PLANNING;
+        }
+
+        String error = task.getError() != null ? task.getError().toLowerCase() : "";
+        if (error.contains("test_issue")
+                || error.contains("max test retries")
+                || error.contains("testwriter")
+                || error.contains("test writer")) {
+            return isBlank(task.getTestOutput()) ? TaskStatus.TEST_WRITING : TaskStatus.TEST_REVIEW_FAILED;
+        }
+        if (error.contains("testreviewer") || error.contains("test reviewer")) {
+            return isBlank(task.getTestOutput()) ? TaskStatus.TEST_WRITING : TaskStatus.TEST_REVIEWING;
+        }
+        if (((error.contains("reviewer") && error.contains("execution"))
+                || (error.contains("reviewer") && error.contains("extraction"))
+                || error.contains("feedback as unclear") || error.contains("requires human arbitration"))
+                && !isBlank(task.getCodeOutput())) {
+            return TaskStatus.REVIEWING;
+        }
+        if ((error.contains("max code retries") || error.contains("request_changes")
+                || error.contains("implementation_issue")) && !isBlank(task.getCodeOutput())) {
+            return TaskStatus.REVIEW_FAILED;
+        }
+        if (!isBlank(task.getCodeOutput())) {
+            return TaskStatus.REVIEW_FAILED;
+        }
+        if (!isBlank(task.getTestOutput()) && !isBlank(task.getTestReviewOutput())) {
+            return TaskStatus.CODING;
+        }
+        if (!isBlank(task.getTestOutput())) {
+            return TaskStatus.TEST_REVIEWING;
+        }
+        return TaskStatus.TEST_WRITING;
+    }
+
+    private boolean hasHumanRevisionFeedback(Task task) {
+        return task.getUserFeedback() != null && !task.getUserFeedback().isBlank();
+    }
+
+    private boolean isBlank(@Nullable String value) {
+        return value == null || value.isBlank();
     }
 
     private ExecutionOutcome continueAfterPlanning(Task task) {
@@ -404,7 +469,7 @@ private ExecutionOutcome runTestWriting(Task task) {
                 task.getTestOutput() != null ? task.getTestOutput() : null,
                 task.getTestReviewOutput() != null ? task.getTestReviewOutput() : null,
                 null, null, null, null, null, null, null,
-                testPhaseFeedback, attempt
+                testPhaseFeedback, attempt, task.getUserFeedback()
         );
 
         AgentResult<TestWriterResult> result;
@@ -572,7 +637,8 @@ private ExecutionOutcome runTestWriting(Task task) {
                 task.getId(), Path.of(worktreePath), null, modelSpec,
                 task.getTitle(), task.getDescription(), worktreePath, timeout,
                 task.isForceNoSplit(), task.getPlanOutput(), task.getTestOutput(),
-                null, task.getTestOutput(), null, null, null, null, null, null, null, null
+                null, task.getTestOutput(), null, null, null, null, null, null, null, null,
+                task.getUserFeedback()
         );
 
         AgentResult<TestReviewerResult> result;
@@ -700,7 +766,7 @@ private ExecutionOutcome runTestWriting(Task task) {
                 task.isForceNoSplit(), task.getPlanOutput(), task.getTestOutput(),
                 task.getTestReviewOutput(), null, task.getCodeOutput(),
                 task.getReviewOutput() != null ? task.getReviewOutput() : null,
-                null, null, null, null, reviewFeedback, attempt
+                null, null, null, null, reviewFeedback, attempt, task.getUserFeedback()
         );
 
         AgentResult<CoderResult> result;
@@ -813,7 +879,7 @@ private ExecutionOutcome runTestWriting(Task task) {
                     task.getTitle(), task.getDescription(), worktreePath, timeout,
                     task.isForceNoSplit(), task.getPlanOutput(), task.getTestOutput(),
                     task.getTestReviewOutput(), null, task.getCodeOutput(),
-                    priorRejections, null, null, null, reviewerId, null, null
+                    priorRejections, null, null, null, reviewerId, null, null, task.getUserFeedback()
             );
 
             AgentResult<ReviewerResult> result;

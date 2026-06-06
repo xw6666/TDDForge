@@ -29,6 +29,7 @@ public final class CoderAgent extends BaseAgent<CoderResult> {
         if (context.testPhaseFeedback() != null && !context.testPhaseFeedback().isBlank()) {
             vars.put("attempt", context.attempt() != null ? String.valueOf(context.attempt()) : "1");
             vars.put("review_feedback", context.testPhaseFeedback());
+            vars.put("human_revision_feedback", humanRevisionFeedbackBlock(context));
         } else {
             vars.put("title", context.title());
             vars.put("description", context.description());
@@ -38,6 +39,7 @@ public final class CoderAgent extends BaseAgent<CoderResult> {
             vars.put("file_path", context.filePath() != null ? context.filePath() : "");
             vars.put("line_number", context.lineNumber() != null ? context.lineNumber() : "");
             vars.put("plan_output", context.planOutput() != null ? context.planOutput() : "");
+            vars.put("human_revision_feedback", humanRevisionFeedbackBlock(context));
         }
         return vars;
     }

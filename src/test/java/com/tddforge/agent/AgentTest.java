@@ -47,6 +47,7 @@ class AgentTest {
                 "",
                 "reviewer-1",
                 null,
+                null,
                 null
         );
     }
@@ -74,7 +75,8 @@ class AgentTest {
                 overrides.containsKey("dependencyContext") ? (String) overrides.get("dependencyContext") : base.dependencyContext(),
                 overrides.containsKey("reviewerId") ? (String) overrides.get("reviewerId") : base.reviewerId(),
                 overrides.containsKey("testPhaseFeedback") ? (String) overrides.get("testPhaseFeedback") : base.testPhaseFeedback(),
-                overrides.containsKey("attempt") ? (Integer) overrides.get("attempt") : base.attempt()
+                overrides.containsKey("attempt") ? (Integer) overrides.get("attempt") : base.attempt(),
+                overrides.containsKey("humanRevisionFeedback") ? (String) overrides.get("humanRevisionFeedback") : base.humanRevisionFeedback()
         );
     }
 

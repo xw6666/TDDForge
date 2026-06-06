@@ -58,4 +58,17 @@ public abstract class BaseAgent<T> implements Agent<T> {
     protected abstract String getAgentType();
 
     protected abstract ExtractionResult<T> extractResult(AgentRun agentRun, AgentContext context);
+
+    protected String humanRevisionFeedbackBlock(AgentContext context) {
+        String feedback = context.humanRevisionFeedback();
+        if (feedback == null || feedback.isBlank()) {
+            return "";
+        }
+        return """
+
+## Human Revision Feedback
+The user provided this feedback when resuming the task from arbitration. Treat it as an explicit correction or direction for this phase:
+
+""" + feedback.trim();
+    }
 }

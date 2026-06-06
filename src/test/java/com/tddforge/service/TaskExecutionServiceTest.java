@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -1500,6 +1501,118 @@ class TaskExecutionServiceTest {
             TaskExecutionService.ExecutionOutcome.NeedsArbitration needsArb = (TaskExecutionService.ExecutionOutcome.NeedsArbitration) outcome;
             assertThat(needsArb.task().getStatus()).isEqualTo(TaskStatus.NEEDS_ARBITRATION);
             assertThat(needsArb.task().getCodeRetryCount()).isEqualTo(orchestratorConfig.getMaxCodeRetries() + 1);
+        }
+    }
+
+    @Nested
+    class HumanRevisionResume {
+
+        @Test
+        void shouldResumeImplementationIssueFromCoderWithHumanFeedback() {
+            Task task = createDefaultTask();
+            task.setStatus(TaskStatus.PENDING);
+            task.setPlanOutput("Implement echo server");
+            task.setTestOutput("TestWriter output EXPECTED_RED");
+            task.setTestReviewOutput("APPROVE");
+            task.setCodeOutput("Previous implementation");
+            task.setReviewOutput("Reviewer reviewer-1 REQUEST_CHANGES:\nImplementation has bugs.");
+            task.setUserFeedback("The failure is in the framing loop; keep the tests.");
+            task.setError("Max code retries exceeded after Reviewer REQUEST_CHANGES");
+            setupTaskSaveWithReload(task);
+
+            AgentRun coderRun = createAgentRun(ndjsonWithText("Implementation fixed"), 0);
+            ExtractionResult<CoderResult> coderExtract = ExtractionResult.success(
+                    new CoderResult("Fixed framing loop", "mvn test", "pass", "def456", List.of()), "");
+            when(coderAgent.run(any())).thenReturn(new AgentResult<>(coderRun, coderExtract));
+
+            AgentRun reviewerRun = createAgentRun(ndjsonWithText("APPROVE\nLooks good."), 0);
+            ExtractionResult<ReviewerResult> reviewerExtract = ExtractionResult.success(
+                    new ReviewerResult("reviewer-1", ReviewVerdict.APPROVE, "Looks good.", null), "");
+            when(reviewerAgent.run(any())).thenReturn(new AgentResult<>(reviewerRun, reviewerExtract));
+
+            TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
+
+            assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.Success.class);
+            TaskExecutionService.ExecutionOutcome.Success success = (TaskExecutionService.ExecutionOutcome.Success) outcome;
+            assertThat(success.task().getStatus()).isEqualTo(TaskStatus.COMPLETED);
+            verify(plannerAgent, never()).run(any());
+            verify(testWriterAgent, never()).run(any());
+            verify(testReviewerAgent, never()).run(any());
+
+            ArgumentCaptor<AgentContext> coderContext = ArgumentCaptor.forClass(AgentContext.class);
+            verify(coderAgent).run(coderContext.capture());
+            assertThat(coderContext.getValue().humanRevisionFeedback())
+                    .isEqualTo("The failure is in the framing loop; keep the tests.");
+        }
+
+        @Test
+        void shouldResumeReviewerParsingFailureFromReviewerWithHumanFeedback() {
+            Task task = createDefaultTask();
+            task.setStatus(TaskStatus.PENDING);
+            task.setPlanOutput("Implement echo server");
+            task.setTestOutput("TestWriter output EXPECTED_RED");
+            task.setTestReviewOutput("APPROVE");
+            task.setCodeOutput("Implementation already passes");
+            task.setUserFeedback("Reviewer output starts with APPROVE and should be accepted.");
+            task.setError("Reviewer reviewer-1 extraction failed: Missing verdict");
+            setupTaskSaveWithReload(task);
+
+            AgentRun reviewerRun = createAgentRun(ndjsonWithText("APPROVE\nLooks good."), 0);
+            ExtractionResult<ReviewerResult> reviewerExtract = ExtractionResult.success(
+                    new ReviewerResult("reviewer-1", ReviewVerdict.APPROVE, "Looks good.", null), "");
+            when(reviewerAgent.run(any())).thenReturn(new AgentResult<>(reviewerRun, reviewerExtract));
+
+            TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
+
+            assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.Success.class);
+            TaskExecutionService.ExecutionOutcome.Success success = (TaskExecutionService.ExecutionOutcome.Success) outcome;
+            assertThat(success.task().getStatus()).isEqualTo(TaskStatus.COMPLETED);
+            verify(plannerAgent, never()).run(any());
+            verify(testWriterAgent, never()).run(any());
+            verify(testReviewerAgent, never()).run(any());
+            verify(coderAgent, never()).run(any());
+
+            ArgumentCaptor<AgentContext> reviewerContext = ArgumentCaptor.forClass(AgentContext.class);
+            verify(reviewerAgent).run(reviewerContext.capture());
+            assertThat(reviewerContext.getValue().humanRevisionFeedback())
+                    .isEqualTo("Reviewer output starts with APPROVE and should be accepted.");
+        }
+
+        @Test
+        void shouldResumeTestReviewerFailureFromTestReviewerWithHumanFeedback() {
+            Task task = createDefaultTask();
+            task.setStatus(TaskStatus.PENDING);
+            task.setPlanOutput("Write tests");
+            task.setTestOutput("TestWriter output EXPECTED_RED");
+            task.setUserFeedback("The test reviewer should accept this as EXPECTED_RED.");
+            task.setError("TestReviewer extraction failed: Missing verdict");
+            setupTaskSaveWithReload(task);
+
+            AgentRun trRun = createAgentRun(ndjsonWithText("APPROVE\nGood tests."), 0);
+            ExtractionResult<TestReviewerResult> trExtract = ExtractionResult.success(
+                    new TestReviewerResult(ReviewVerdict.APPROVE, "Good tests."), "");
+            when(testReviewerAgent.run(any())).thenReturn(new AgentResult<>(trRun, trExtract));
+
+            AgentRun coderRun = createAgentRun(ndjsonWithText("Implementation done"), 0);
+            ExtractionResult<CoderResult> coderExtract = ExtractionResult.success(
+                    new CoderResult("Fixed bug", "mvn test", "pass", "def456", List.of()), "");
+            when(coderAgent.run(any())).thenReturn(new AgentResult<>(coderRun, coderExtract));
+
+            AgentRun reviewerRun = createAgentRun(ndjsonWithText("APPROVE\nLooks good."), 0);
+            ExtractionResult<ReviewerResult> reviewerExtract = ExtractionResult.success(
+                    new ReviewerResult("reviewer-1", ReviewVerdict.APPROVE, "Looks good.", null), "");
+            when(reviewerAgent.run(any())).thenReturn(new AgentResult<>(reviewerRun, reviewerExtract));
+
+            TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
+
+            assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.Success.class);
+            verify(plannerAgent, never()).run(any());
+            verify(testWriterAgent, never()).run(any());
+
+            ArgumentCaptor<AgentContext> testReviewerContext = ArgumentCaptor.forClass(AgentContext.class);
+            verify(testReviewerAgent).run(testReviewerContext.capture());
+            assertThat(testReviewerContext.getValue().humanRevisionFeedback())
+                    .isEqualTo("The test reviewer should accept this as EXPECTED_RED.");
         }
     }
 

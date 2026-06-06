@@ -101,6 +101,8 @@ Task description: {{description}}
 
 Repository: {{repo_path}}
 
+{{human_revision_feedback}}
+
 Step 1 — Assess complexity. Choose ONE label:
   very_complex : Requires deep understanding of multiple subsystems, likely touches >10 files,
                  high risk of breaking existing behaviour, needs the most capable model.
@@ -148,6 +150,8 @@ Task description: {{description}}
 
 Repository: {{repo_path}}
 
+{{human_revision_feedback}}
+
 Step 1 — Assess complexity. Choose ONE label:
   very_complex : Requires deep understanding of multiple subsystems, likely touches >10 files,
                  high risk of breaking existing behaviour, needs the most capable model.
@@ -179,6 +183,8 @@ You are a test-writing agent in a TDD coding pipeline. Your job is to write mean
 
 ## Planner Output
 {{plan_output}}
+
+{{human_revision_feedback}}
 
 ## Delivery Requirements
 The changes you make in this phase must form a correct test-only git commit that can be reviewed independently before implementation begins.
@@ -214,6 +220,8 @@ The changes you make in this phase must form a correct test-only git commit that
 ## Test Phase Feedback (attempt {{attempt}})
 {{test_phase_feedback}}
 
+{{human_revision_feedback}}
+
 Please inspect the feedback carefully and update the tests accordingly.
 
 This feedback may come from:
@@ -244,6 +252,8 @@ Description: {{description}}
 
 ## Test Writer Response
 {{test_writer_response}}
+
+{{human_revision_feedback}}
 
 ## Instructions
 The test-writing agent has already committed its test changes to this repository's git history. You should only focus on whether the test commit is a high-quality TDD constraint for the task. The production implementation is not expected to exist yet.
@@ -298,6 +308,8 @@ Test review output:
 ## Implementation Plan(Suggestion, not necessarily followed)
 {{plan_output}}
 
+{{human_revision_feedback}}
+
 ## Requirements
 1. Make the minimal necessary changes to resolve this task. If changing leads to a more optimal organization of related functions and files, and the modifications are not difficult, please apply the relevant refactoring accordingly.
 2. Follow existing code style and conventions.
@@ -320,6 +332,8 @@ Test review output:
 ## Review Feedback (attempt {{attempt}})
 {{review_feedback}}
 
+{{human_revision_feedback}}
+
 Please confirm whether the issues/optimization suggestions mentioned in the review are present/feasible, and if there are no issues, modify the code according to the suggestions.
 Do not ask me any questions. If you think the review comments are reasonable, make the modifications you believe are appropriate directly.
 You can decide on any intermediate issues on your own and finally explain them all together.
@@ -339,6 +353,8 @@ Command:
 
 Output:
 {{test_output}}
+
+{{human_revision_feedback}}
 
 Please diagnose the failure, update the implementation, and run the relevant tests again.
 
@@ -376,6 +392,8 @@ The coding agent provided the following explanation alongside its changes. Consi
 The following issues were raised by reviewers in earlier round(s). The coder has since made further changes, so these complaints may already be resolved — or may have been incorrect in the first place. Use them as hints to guide your inspection, but reach your own independent conclusion.
 
 {{prior_rejections}}
+
+{{human_revision_feedback}}
 
 ## Instructions
 The coding agent has already committed its changes to this repository's git history. You should only focus on the content of the commits; the content in the working area that has not been committed is NOT part of the submission and does not require review.

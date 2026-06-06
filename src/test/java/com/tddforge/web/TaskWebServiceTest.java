@@ -77,6 +77,64 @@ class TaskWebServiceTest {
     }
 
     @Nested
+    class ReviseTask {
+
+        @Test
+        void shouldAllowRevisingNeedsArbitrationTaskAndResetRetryState() {
+            TaskEntity entity = createTaskEntity("r1", TaskStatus.NEEDS_ARBITRATION);
+            entity.setTestRetryCount(3);
+            entity.setCodeRetryCount(5);
+            entity.setReviewPass(true);
+            entity.setCompletedAt(Instant.now());
+            entity.setError("Max code retries exceeded after Reviewer REQUEST_CHANGES");
+            when(taskRepository.findById("r1")).thenReturn(Optional.of(entity));
+
+            OperationResponse response = service.reviseTask("r1", "Use the simpler API boundary.");
+
+            assertThat(response.success()).isTrue();
+            ArgumentCaptor<TaskEntity> captor = ArgumentCaptor.forClass(TaskEntity.class);
+            verify(taskRepository).save(captor.capture());
+            TaskEntity saved = captor.getValue();
+            assertThat(saved.getStatus()).isEqualTo(TaskStatus.PENDING);
+            assertThat(saved.getUserFeedback()).isEqualTo("Use the simpler API boundary.");
+            assertThat(saved.getTestRetryCount()).isZero();
+            assertThat(saved.getCodeRetryCount()).isZero();
+            assertThat(saved.isReviewPass()).isFalse();
+            assertThat(saved.getCompletedAt()).isNull();
+            assertThat(saved.getError()).contains("Max code retries exceeded");
+        }
+
+        @Test
+        void shouldAllowRevisingFailedTask() {
+            TaskEntity entity = createTaskEntity("r2", TaskStatus.FAILED);
+            entity.setTestRetryCount(1);
+            entity.setCodeRetryCount(2);
+            entity.setError("TestReviewer extraction failed");
+            when(taskRepository.findById("r2")).thenReturn(Optional.of(entity));
+
+            service.reviseTask("r2", "The reviewer output means approve.");
+
+            ArgumentCaptor<TaskEntity> captor = ArgumentCaptor.forClass(TaskEntity.class);
+            verify(taskRepository).save(captor.capture());
+            TaskEntity saved = captor.getValue();
+            assertThat(saved.getStatus()).isEqualTo(TaskStatus.PENDING);
+            assertThat(saved.getUserFeedback()).isEqualTo("The reviewer output means approve.");
+            assertThat(saved.getTestRetryCount()).isZero();
+            assertThat(saved.getCodeRetryCount()).isZero();
+        }
+
+        @Test
+        void shouldRejectRevisingRunningTask() {
+            TaskEntity entity = createTaskEntity("r3", TaskStatus.CODING);
+            when(taskRepository.findById("r3")).thenReturn(Optional.of(entity));
+
+            assertThatThrownBy(() -> service.reviseTask("r3", "Try again"))
+                    .isInstanceOf(InvalidTaskStateException.class)
+                    .hasMessageContaining("NEEDS_ARBITRATION or FAILED");
+        }
+    }
+
+    @Nested
     class CleanTask {
 
         @Test
