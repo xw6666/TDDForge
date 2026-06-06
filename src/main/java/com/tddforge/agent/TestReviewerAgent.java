@@ -26,6 +26,7 @@ public final class TestReviewerAgent extends BaseAgent<TestReviewerResult> {
         vars.put("description", context.description());
         vars.put("plan_output", context.planOutput() != null ? context.planOutput() : "");
         vars.put("test_writer_response", context.testWriterResponse() != null ? context.testWriterResponse() : "");
+        vars.put("human_revision_feedback", humanRevisionFeedbackBlock(context));
         return vars;
     }
 

@@ -29,6 +29,7 @@ public final class PlannerAgent extends BaseAgent<PlannerResult> {
         vars.put("title", context.title());
         vars.put("description", context.description());
         vars.put("repo_path", context.repoPath());
+        vars.put("human_revision_feedback", humanRevisionFeedbackBlock(context));
         return vars;
     }
 

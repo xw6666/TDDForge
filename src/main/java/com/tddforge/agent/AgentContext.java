@@ -25,7 +25,8 @@ public record AgentContext(
         @Nullable String dependencyContext,
         @Nullable String reviewerId,
         @Nullable String testPhaseFeedback,
-        @Nullable Integer attempt
+        @Nullable Integer attempt,
+        @Nullable String humanRevisionFeedback
 ) {
 
     public AgentContext {

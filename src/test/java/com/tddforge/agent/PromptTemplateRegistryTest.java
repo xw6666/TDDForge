@@ -23,7 +23,8 @@ class PromptTemplateRegistryTest {
         Map<String, String> vars = Map.of(
                 "title", "Fix bug",
                 "description", "Fix the NPE",
-                "repo_path", "/repo"
+                "repo_path", "/repo",
+                "human_revision_feedback", ""
         );
         String result = registry.render(PromptTemplateRegistry.Template.PLANNER_ANALYZE_SPLIT, vars);
         assertTrue(result.contains("planning agent"));
@@ -40,7 +41,8 @@ class PromptTemplateRegistryTest {
         Map<String, String> vars = Map.of(
                 "title", "Simple fix",
                 "description", "Fix typo",
-                "repo_path", "/repo"
+                "repo_path", "/repo",
+                "human_revision_feedback", ""
         );
         String result = registry.render(PromptTemplateRegistry.Template.PLANNER_NO_SPLIT, vars);
         assertTrue(result.contains("Splitting is forbidden"));
@@ -56,7 +58,8 @@ class PromptTemplateRegistryTest {
                 "title", "Add login",
                 "description", "Add user login",
                 "repo_path", "/repo",
-                "plan_output", "Write login tests"
+                "plan_output", "Write login tests",
+                "human_revision_feedback", ""
         );
         String result = registry.render(PromptTemplateRegistry.Template.TEST_WRITER, vars);
         assertTrue(result.contains("test-writing agent"));
@@ -72,7 +75,8 @@ class PromptTemplateRegistryTest {
     void shouldRenderTestWriterRetry() {
         Map<String, String> vars = Map.of(
                 "attempt", "2",
-                "test_phase_feedback", "Tests were invalid"
+                "test_phase_feedback", "Tests were invalid",
+                "human_revision_feedback", ""
         );
         String result = registry.render(PromptTemplateRegistry.Template.TEST_WRITER_RETRY, vars);
         assertTrue(result.contains("Test Phase Feedback"));
@@ -88,7 +92,8 @@ class PromptTemplateRegistryTest {
                 "title", "Add login",
                 "description", "Add user login",
                 "plan_output", "Write login tests",
-                "test_writer_response", "Tests written"
+                "test_writer_response", "Tests written",
+                "human_revision_feedback", ""
         );
         String result = registry.render(PromptTemplateRegistry.Template.TEST_REVIEWER, vars);
         assertTrue(result.contains("test review agent"));
@@ -109,7 +114,8 @@ class PromptTemplateRegistryTest {
                 "dependency_context", "",
                 "file_path", "src/Login.java",
                 "line_number", "42",
-                "plan_output", "Implement login"
+                "plan_output", "Implement login",
+                "human_revision_feedback", ""
         );
         String result = registry.render(PromptTemplateRegistry.Template.CODER_IMPLEMENT, vars);
         assertTrue(result.contains("coding agent"));
@@ -125,7 +131,8 @@ class PromptTemplateRegistryTest {
     void shouldRenderCoderRetry() {
         Map<String, String> vars = Map.of(
                 "attempt", "1",
-                "review_feedback", "Fix the implementation"
+                "review_feedback", "Fix the implementation",
+                "human_revision_feedback", ""
         );
         String result = registry.render(PromptTemplateRegistry.Template.CODER_RETRY, vars);
         assertTrue(result.contains("Review Feedback"));
@@ -140,7 +147,8 @@ class PromptTemplateRegistryTest {
         Map<String, String> vars = Map.of(
                 "attempt", "1",
                 "test_command", "mvn test",
-                "test_output", "Tests failed: 1"
+                "test_output", "Tests failed: 1",
+                "human_revision_feedback", ""
         );
         String result = registry.render(PromptTemplateRegistry.Template.CODER_TEST_FAILURE_RETRY, vars);
         assertTrue(result.contains("Test Failure Feedback"));
@@ -158,13 +166,37 @@ class PromptTemplateRegistryTest {
                 "test_output", "Test output",
                 "test_review_output", "Approved",
                 "coder_response", "Implemented",
-                "prior_rejections", ""
+                "prior_rejections", "",
+                "human_revision_feedback", ""
         );
         String result = registry.render(PromptTemplateRegistry.Template.REVIEWER_REVIEW, vars);
         assertTrue(result.contains("code review agent"));
         assertTrue(result.contains("APPROVE"));
         assertTrue(result.contains("REQUEST_CHANGES"));
         assertTrue(result.contains("Implemented"));
+        assertFalse(result.contains("{{"));
+    }
+
+    @Test
+    void shouldRenderHumanRevisionFeedbackWhenProvided() {
+        Map<String, String> vars = Map.of(
+                "title", "Implement login",
+                "description", "Implement user login",
+                "test_output", "Test output",
+                "test_review_output", "Approved",
+                "dependency_context", "",
+                "file_path", "src/Login.java",
+                "line_number", "42",
+                "plan_output", "Implement login",
+                "human_revision_feedback", """
+
+                        ## Human Revision Feedback
+                        User says retry from coding.
+                        """
+        );
+        String result = registry.render(PromptTemplateRegistry.Template.CODER_IMPLEMENT, vars);
+        assertTrue(result.contains("Human Revision Feedback"));
+        assertTrue(result.contains("User says retry from coding."));
         assertFalse(result.contains("{{"));
     }
 
@@ -285,7 +317,8 @@ class PromptTemplateRegistryTest {
         Map<String, String> vars = Map.of(
                 "title", "Fix NPE",
                 "description", "Fix null pointer",
-                "repo_path", "/repo"
+                "repo_path", "/repo",
+                "human_revision_feedback", ""
         );
         String result = registry.render(PromptTemplateRegistry.Template.PLANNER_ANALYZE_SPLIT, vars);
         assertTrue(result.contains("\n"));

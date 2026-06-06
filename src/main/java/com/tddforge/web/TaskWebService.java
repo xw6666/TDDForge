@@ -140,14 +140,17 @@ public class TaskWebService {
                 .orElseThrow(() -> new TaskNotFoundException(id));
 
         Task task = entity.toDomain();
-        if (task.getStatus() != TaskStatus.NEEDS_ARBITRATION) {
+        if (task.getStatus() != TaskStatus.NEEDS_ARBITRATION && task.getStatus() != TaskStatus.FAILED) {
             throw new InvalidTaskStateException(id, task.getStatus(), "revise",
-                    "Task must be in NEEDS_ARBITRATION status to revise, current status: " + task.getStatus());
+                    "Task must be in NEEDS_ARBITRATION or FAILED status to revise, current status: " + task.getStatus());
         }
 
         task.setUserFeedback(feedback);
+        task.setTestRetryCount(0);
+        task.setCodeRetryCount(0);
+        task.setReviewPass(false);
         task.setStatus(TaskStatus.PENDING);
-        task.setError(null);
+        task.setCompletedAt(null);
         task.setUpdatedAt(Instant.now());
         taskRepository.save(TaskEntity.fromDomain(task));
 

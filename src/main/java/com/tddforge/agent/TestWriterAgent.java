@@ -29,6 +29,7 @@ public final class TestWriterAgent extends BaseAgent<TestWriterResult> {
         vars.put("description", context.description());
         vars.put("repo_path", context.repoPath());
         vars.put("plan_output", context.planOutput() != null ? context.planOutput() : "");
+        vars.put("human_revision_feedback", humanRevisionFeedbackBlock(context));
         return vars;
     }
 
@@ -50,6 +51,7 @@ public final class TestWriterAgent extends BaseAgent<TestWriterResult> {
             Map<String, String> retryVars = new LinkedHashMap<>();
             retryVars.put("attempt", String.valueOf(context.attempt() != null ? context.attempt() : 1));
             retryVars.put("test_phase_feedback", context.testPhaseFeedback());
+            retryVars.put("human_revision_feedback", humanRevisionFeedbackBlock(context));
             String retryPrompt = promptRegistry.render(PromptTemplateRegistry.Template.TEST_WRITER_RETRY, retryVars);
             prompt = basePrompt + "\n\n" + retryPrompt;
         } else {
