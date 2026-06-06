@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
@@ -98,6 +99,16 @@ public class TaskWebService {
                 .orElseThrow(() -> new TaskNotFoundException(id));
 
         Task task = entity.toDomain();
+        if (task.getParentId() != null && !task.getParentId().isBlank()) {
+            throw new InvalidTaskStateException(id, task.getStatus(), "dispatch",
+                    "Child tasks cannot be dispatched directly. Dispatch the parent task first.");
+        }
+
+        List<Task> children = orderedChildTasks(id);
+        if (!children.isEmpty()) {
+            return dispatchExistingChildren(task, children);
+        }
+
         if (task.getStatus() != TaskStatus.PENDING) {
             throw new InvalidTaskStateException(id, task.getStatus(), "dispatch",
                     "Task must be in PENDING status to dispatch, current status: " + task.getStatus());
@@ -111,6 +122,80 @@ public class TaskWebService {
 
         log.info("Task {} dispatched to orchestrator", id);
         return OperationResponse.success(id, "Task dispatched successfully");
+    }
+
+    private OperationResponse dispatchExistingChildren(Task parent, List<Task> children) {
+        if (parent.getStatus() == TaskStatus.CANCELLED || parent.getStatus() == TaskStatus.COMPLETED) {
+            throw new InvalidTaskStateException(parent.getId(), parent.getStatus(), "dispatch",
+                    "Cannot dispatch child workflow for parent task in " + parent.getStatus() + " status");
+        }
+
+        if (parent.getStatus() == TaskStatus.FAILED
+                && StartupRecoveryService.RECOVERY_ERROR_MESSAGE.equals(parent.getError())) {
+            parent.setStatus(TaskStatus.PENDING);
+            parent.setError(null);
+            parent.setUpdatedAt(Instant.now());
+            taskRepository.save(TaskEntity.fromDomain(parent));
+            log.info("Parent task {} reset from restart recovery failure to PENDING", parent.getId());
+        }
+
+        int acceptedCount = 0;
+        for (Task child : children) {
+            Task dispatchableChild = resetRestartFailedChildIfNeeded(child);
+            if (dispatchableChild.getStatus() != TaskStatus.PENDING) {
+                continue;
+            }
+            if (orchestrator.dispatchTask(dispatchableChild.getId())) {
+                acceptedCount++;
+            }
+        }
+
+        if (acceptedCount == 0) {
+            throw new InvalidTaskStateException(parent.getId(), parent.getStatus(), "dispatch",
+                    "No child tasks are ready to dispatch for parent task " + parent.getId());
+        }
+
+        log.info("Parent task {} dispatched {} existing child task(s)", parent.getId(), acceptedCount);
+        return OperationResponse.success(parent.getId(), "Parent child workflow dispatched successfully");
+    }
+
+    private Task resetRestartFailedChildIfNeeded(Task child) {
+        if (child.getStatus() == TaskStatus.FAILED
+                && StartupRecoveryService.RECOVERY_ERROR_MESSAGE.equals(child.getError())) {
+            child.setStatus(TaskStatus.PENDING);
+            child.setError(null);
+            child.setUpdatedAt(Instant.now());
+            Task saved = taskRepository.save(TaskEntity.fromDomain(child)).toDomain();
+            log.info("Child task {} reset from restart recovery failure to PENDING", saved.getId());
+            return saved;
+        }
+        return child;
+    }
+
+    private List<Task> orderedChildTasks(String parentId) {
+        List<TaskEntity> childEntities = taskRepository.findByParentId(parentId);
+        if (childEntities == null || childEntities.isEmpty()) {
+            return List.of();
+        }
+        return childEntities.stream()
+                .map(TaskEntity::toDomain)
+                .sorted(Comparator
+                        .comparingInt((Task task) -> priorityRank(task.getPriority()))
+                        .thenComparing(Task::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(Task::getId))
+                .toList();
+    }
+
+    private int priorityRank(TaskPriority priority) {
+        if (priority == null) {
+            return 2;
+        }
+        return switch (priority) {
+            case CRITICAL -> 0;
+            case HIGH -> 1;
+            case MEDIUM -> 2;
+            case LOW -> 3;
+        };
     }
 
     @Transactional

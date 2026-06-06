@@ -3,6 +3,7 @@ package com.tddforge.web;
 import com.tddforge.config.OrchestratorConfig;
 import com.tddforge.config.RepoConfig;
 import com.tddforge.domain.Task;
+import com.tddforge.domain.TaskPriority;
 import com.tddforge.domain.TaskStatus;
 import com.tddforge.git.WorktreeManager;
 import com.tddforge.git.WorktreeManagerException;
@@ -23,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -70,10 +72,76 @@ class TaskWebServiceTest {
         return TaskEntity.fromDomain(task);
     }
 
+    private TaskEntity createChildTaskEntity(String id, String parentId, TaskStatus status) {
+        TaskEntity entity = createTaskEntity(id, status);
+        entity.setParentId(parentId);
+        return entity;
+    }
+
     private TaskEntity createCompletedTaskEntity(String id) {
         TaskEntity entity = createTaskEntity(id, TaskStatus.COMPLETED);
         entity.setCompletedAt(Instant.now());
         return entity;
+    }
+
+    @Nested
+    class DispatchTask {
+
+        @Test
+        void shouldRejectDirectChildDispatch() {
+            TaskEntity child = createChildTaskEntity("child-1", "parent-1", TaskStatus.PENDING);
+            when(taskRepository.findById("child-1")).thenReturn(Optional.of(child));
+
+            assertThatThrownBy(() -> service.dispatchTask("child-1"))
+                    .isInstanceOf(InvalidTaskStateException.class)
+                    .hasMessageContaining("Dispatch the parent task first");
+
+            verify(orchestrator, never()).dispatchTask(any());
+        }
+
+        @Test
+        void shouldDispatchExistingChildrenWhenParentIsDispatched() {
+            TaskEntity parent = createTaskEntity("parent-1", TaskStatus.PENDING);
+            TaskEntity low = createChildTaskEntity("child-low", "parent-1", TaskStatus.PENDING);
+            low.setPriority(TaskPriority.LOW);
+            TaskEntity high = createChildTaskEntity("child-high", "parent-1", TaskStatus.PENDING);
+            high.setPriority(TaskPriority.HIGH);
+            when(taskRepository.findById("parent-1")).thenReturn(Optional.of(parent));
+            when(taskRepository.findByParentId("parent-1")).thenReturn(List.of(low, high));
+            when(orchestrator.dispatchTask("child-high")).thenReturn(true);
+            when(orchestrator.dispatchTask("child-low")).thenReturn(true);
+
+            OperationResponse response = service.dispatchTask("parent-1");
+
+            assertThat(response.success()).isTrue();
+            verify(orchestrator, never()).dispatchTask("parent-1");
+            var inOrder = inOrder(orchestrator);
+            inOrder.verify(orchestrator).dispatchTask("child-high");
+            inOrder.verify(orchestrator).dispatchTask("child-low");
+        }
+
+        @Test
+        void shouldResetRestartFailedParentAndChildrenBeforeDispatchingExistingChildren() {
+            TaskEntity parent = createTaskEntity("parent-1", TaskStatus.FAILED);
+            parent.setError(StartupRecoveryService.RECOVERY_ERROR_MESSAGE);
+            TaskEntity child = createChildTaskEntity("child-1", "parent-1", TaskStatus.FAILED);
+            child.setError(StartupRecoveryService.RECOVERY_ERROR_MESSAGE);
+            when(taskRepository.findById("parent-1")).thenReturn(Optional.of(parent));
+            when(taskRepository.findByParentId("parent-1")).thenReturn(List.of(child));
+            when(taskRepository.save(any(TaskEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(orchestrator.dispatchTask("child-1")).thenReturn(true);
+
+            OperationResponse response = service.dispatchTask("parent-1");
+
+            assertThat(response.success()).isTrue();
+            ArgumentCaptor<TaskEntity> captor = ArgumentCaptor.forClass(TaskEntity.class);
+            verify(taskRepository, times(2)).save(captor.capture());
+            assertThat(captor.getAllValues()).extracting(TaskEntity::getStatus)
+                    .containsExactly(TaskStatus.PENDING, TaskStatus.PENDING);
+            assertThat(captor.getAllValues()).extracting(TaskEntity::getError)
+                    .containsExactly(null, null);
+            verify(orchestrator).dispatchTask("child-1");
+        }
     }
 
     @Nested
