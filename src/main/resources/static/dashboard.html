@@ -495,6 +495,52 @@
   .task-item .task-title { font-size: 13px; font-weight: 700; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
   .task-item .task-meta { font-size: 11px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   .task-item .task-time { font-size: 10px; color: var(--muted); }
+  .task-group { margin-bottom: 7px; }
+  .task-group-parent { position: relative; }
+  .task-group-parent.has-children { padding-right: 38px; }
+  .task-expand-btn {
+    position: absolute;
+    top: 9px;
+    right: 9px;
+    width: 25px;
+    height: 25px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--filter-bg);
+    color: var(--ink-soft);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  }
+  .task-expand-btn:hover { background: var(--button-hover-bg); border-color: var(--accent); color: var(--accent-dark); box-shadow: var(--accent-glow); }
+  .task-expand-btn.expanded { transform: rotate(90deg); color: var(--accent-dark); }
+  .task-children {
+    margin: -2px 0 8px 14px;
+    padding-left: 10px;
+    border-left: 1px solid var(--line);
+  }
+  .task-children .task-item {
+    margin-bottom: 5px;
+    padding: 9px 10px;
+    background: var(--surface-soft);
+    border-color: var(--line);
+  }
+  .task-children .task-item:hover { background: var(--task-hover-bg); }
+  .task-children .task-item.active { box-shadow: inset 3px 0 0 var(--accent), var(--shadow-tiny); }
+  .children-count-chip {
+    color: var(--accent-dark);
+    background: var(--filter-active-bg);
+    border: 1px solid var(--accent-soft);
+    border-radius: 999px;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: 800;
+  }
   .empty-state { padding: 24px 16px; text-align: center; color: var(--muted); font-size: 12px; font-family: var(--font-display); }
   .child-chip, .branch-chip, .run-subtle, .session-code { color: var(--muted); font-size: 10px; }
   .branch-chip { font-size: 11px; }
@@ -968,6 +1014,7 @@ let renderedTaskId = null;
 const detailsOpenState = new Map();
 const detailsScrollState = new Map();
 const panelScrollState = new Map();
+const expandedTaskGroups = new Set();
 
 const STATUSES = ['All','PENDING','PLANNING','TEST_WRITING','TEST_REVIEWING','CODING','REVIEWING','NEEDS_ARBITRATION','COMPLETED','FAILED','CANCELLED'];
 
@@ -1308,6 +1355,53 @@ function getFilteredTasks() {
   });
 }
 
+function taskCreatedMillis(task) {
+  const value = task && task.createdAt ? Date.parse(task.createdAt) : 0;
+  return Number.isFinite(value) ? value : 0;
+}
+
+function compareTasksByCreatedDesc(a, b) {
+  const diff = taskCreatedMillis(b) - taskCreatedMillis(a);
+  if (diff !== 0) return diff;
+  return String(b.id || '').localeCompare(String(a.id || ''));
+}
+
+function taskMatchesListFilter(task) {
+  if (currentFilter !== 'All' && task.status !== currentFilter) return false;
+  if (searchQuery) {
+    const hay = [task.title, task.id, task.branchName, task.parentId, ''].join(' ').toLowerCase();
+    if (!hay.includes(searchQuery)) return false;
+  }
+  return true;
+}
+
+function buildTaskGroups() {
+  const byId = new Map(allTasks.map(t => [t.id, t]));
+  const childrenByParent = new Map();
+  allTasks.forEach(t => {
+    if (!t.parentId) return;
+    if (!childrenByParent.has(t.parentId)) childrenByParent.set(t.parentId, []);
+    childrenByParent.get(t.parentId).push(t);
+  });
+  childrenByParent.forEach(children => children.sort(compareTasksByCreatedDesc));
+
+  const parentCandidates = allTasks.filter(t => !t.parentId || !byId.has(t.parentId));
+  const groups = [];
+  parentCandidates.forEach(parent => {
+    const children = childrenByParent.get(parent.id) || [];
+    const matchingChildren = children.filter(taskMatchesListFilter);
+    const parentMatches = taskMatchesListFilter(parent);
+    if (!parentMatches && matchingChildren.length === 0) return;
+    groups.push({
+      parent,
+      children,
+      visibleChildren: searchQuery || currentFilter !== 'All' ? matchingChildren : children,
+      forceExpanded: !parentMatches && matchingChildren.length > 0
+    });
+  });
+  return groups.sort((a, b) => compareTasksByCreatedDesc(a.parent, b.parent));
+}
+
 // --- Task List ---
 
 async function loadTaskList() {
@@ -1322,30 +1416,77 @@ async function loadTaskList() {
 
 function renderTaskList() {
   const container = document.getElementById('task-list');
-  const tasks = getFilteredTasks();
+  const groups = buildTaskGroups();
   container.innerHTML = '';
-  if (tasks.length === 0) {
+  if (groups.length === 0) {
     container.innerHTML = '<div class="empty-state">No tasks found</div>';
     return;
   }
-  tasks.forEach(t => {
+  groups.forEach(group => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'task-group';
+    wrapper.appendChild(renderTaskItem(group.parent, {
+      isParent: true,
+      childCount: group.children.length,
+      forceExpanded: group.forceExpanded
+    }));
+
+    const isExpanded = group.forceExpanded || expandedTaskGroups.has(group.parent.id);
+    if (isExpanded && group.visibleChildren.length > 0) {
+      const childWrap = document.createElement('div');
+      childWrap.className = 'task-children';
+      group.visibleChildren.forEach(child => {
+        childWrap.appendChild(renderTaskItem(child, { isChild: true }));
+      });
+      wrapper.appendChild(childWrap);
+    }
+    container.appendChild(wrapper);
+  });
+}
+
+function renderTaskItem(t, opts = {}) {
     const div = document.createElement('div');
-    div.className = 'task-item' + (t.id === selectedTaskId ? ' active' : '');
+    const hasChildren = opts.childCount > 0;
+    const expanded = opts.forceExpanded || expandedTaskGroups.has(t.id);
+    div.className = 'task-item' +
+      (opts.isParent ? ' task-group-parent' : '') +
+      (opts.isChild ? ' task-child-item' : '') +
+      (hasChildren ? ' has-children' : '') +
+      (t.id === selectedTaskId ? ' active' : '');
     div.onclick = () => selectTask(t.id);
     const parentInfo = t.parentId ? ' <span class="child-chip">child:' + esc(t.parentId.substring(0,6)) + '</span>' : '';
+    const childrenInfo = hasChildren ? ' <span class="children-count-chip">' + opts.childCount + ' child' + (opts.childCount === 1 ? '' : 'ren') + '</span>' : '';
     const errorInfo = t.error ? ' <span class="task-error-chip" title="' + esc(t.error) + '">ERR</span>' : '';
-    const timeStr = t.updatedAt ? formatTimeShort(t.updatedAt) : (t.createdAt ? formatTimeShort(t.createdAt) : '');
+    const timeStr = t.createdAt ? formatTimeShort(t.createdAt) : (t.updatedAt ? formatTimeShort(t.updatedAt) : '');
     div.innerHTML =
       '<div class="task-title">' + esc(t.title) + '</div>' +
       '<div class="task-meta">' +
         '<span class="badge badge-' + t.status + '">' + t.status + '</span>' +
         '<span class="badge badge-' + t.priority + '">' + t.priority + '</span>' +
-        parentInfo + errorInfo +
+        parentInfo + childrenInfo + errorInfo +
         (t.branchName ? ' <span class="branch-chip">' + esc(t.branchName) + '</span>' : '') +
         (timeStr ? ' <span class="task-time">' + timeStr + '</span>' : '') +
       '</div>';
-    container.appendChild(div);
-  });
+    if (hasChildren) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'task-expand-btn' + (expanded ? ' expanded' : '');
+      btn.title = expanded ? 'Collapse child tasks' : 'Expand child tasks';
+      btn.setAttribute('aria-label', btn.title);
+      btn.setAttribute('aria-expanded', String(expanded));
+      btn.textContent = '›';
+      btn.onclick = (event) => {
+        event.stopPropagation();
+        if (expandedTaskGroups.has(t.id)) {
+          expandedTaskGroups.delete(t.id);
+        } else {
+          expandedTaskGroups.add(t.id);
+        }
+        renderTaskList();
+      };
+      div.appendChild(btn);
+    }
+    return div;
 }
 
 // --- Select Task ---
