@@ -12,6 +12,7 @@ import org.slf4j.MDC;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -74,11 +75,11 @@ public class OpenCodeClient {
         for (int attempt = 0; attempt <= maxContinues; attempt++) {
             String prompt = (attempt == 0) ? request.prompt() : CONTINUE_PROMPT;
 
-            List<String> command = buildCommand(request, sessionId, prompt);
+            List<String> command = buildCommand(request, sessionId);
             log.info("Running opencode attempt {}/{}: model={}, worktree={}",
                     attempt, maxContinues, request.model(), request.worktreeDir());
 
-            RunResult result = executeProcess(taskId, request.worktreeDir(), command, request.timeoutSeconds());
+            RunResult result = executeProcess(taskId, request.worktreeDir(), command, prompt, request.timeoutSeconds());
             String attemptOutput = result.output();
 
             if (!accumulatedOutput.isEmpty()) {
@@ -144,7 +145,7 @@ public class OpenCodeClient {
         return false;
     }
 
-    private RunResult executeProcess(String taskId, Path worktreeDir, List<String> command, long timeoutSeconds) {
+    private RunResult executeProcess(String taskId, Path worktreeDir, List<String> command, String prompt, long timeoutSeconds) {
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.environment().put("OPENCODE_CONFIG", config.getConfigPath());
         pb.directory(worktreeDir.toFile());
@@ -166,6 +167,8 @@ public class OpenCodeClient {
             pid = process.pid();
             runningProcesses.put(taskId, process);
             log.debug("Started opencode process with PID: {}", pid);
+
+            writePromptToStdin(process, prompt, pid);
 
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
 
@@ -209,7 +212,18 @@ public class OpenCodeClient {
         }
     }
 
-    private List<String> buildCommand(OpenCodeRequest request, String sessionId, String prompt) {
+    private void writePromptToStdin(Process process, String prompt, long pid) {
+        try (var stdin = process.getOutputStream()) {
+            if (prompt != null && !prompt.isEmpty()) {
+                stdin.write(prompt.getBytes(StandardCharsets.UTF_8));
+                stdin.flush();
+            }
+        } catch (IOException e) {
+            log.warn("Failed to write prompt to opencode stdin (PID {}): {}", pid, e.getMessage());
+        }
+    }
+
+    private List<String> buildCommand(OpenCodeRequest request, String sessionId) {
         List<String> command = new ArrayList<>();
         command.add(opencodeBinary);
         command.add("run");
@@ -233,7 +247,6 @@ public class OpenCodeClient {
             command.add(request.agent());
         }
 
-        command.add(prompt);
         return command;
     }
 

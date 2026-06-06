@@ -86,7 +86,8 @@
   .phase-output { margin-bottom: 6px; }
   .phase-output summary { cursor: pointer; font-weight: 500; font-size: 12px; padding: 3px 0; color: #1a73e8; }
   .phase-output summary:hover { text-decoration: underline; }
-  pre.output { background: #f5f5f5; padding: 8px; border-radius: 3px; font-size: 11px; overflow-x: auto; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; }
+  .output { background: #f5f5f5; padding: 8px; border-radius: 3px; font-size: 11px; overflow-x: auto; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; }
+  pre.output { display: block; }
 
   /* Agent runs */
   .run-card { border: 1px solid #e0e0e0; border-radius: 4px; margin-bottom: 6px; padding: 8px 10px; background: #fafafa; }
@@ -95,7 +96,22 @@
   .run-card .run-header .run-type { font-weight: 600; font-size: 12px; }
   .run-card .run-meta { font-size: 11px; color: #555; margin-bottom: 4px; line-height: 1.5; }
   .run-card .run-meta .error-badge { color: #c62828; font-weight: 600; }
-  .run-card pre { font-size: 11px; max-height: 200px; }
+  .run-card .output { font-size: 11px; max-height: 260px; }
+  .event-output { white-space: normal; padding: 6px; background: #f7f8fa; }
+  .event-card { border: 1px solid #d8dde6; border-left: 4px solid #8a96a8; border-radius: 4px; background: #fff; margin-bottom: 6px; overflow: hidden; }
+  .event-card:last-child { margin-bottom: 0; }
+  .event-card.event-text { border-left-color: #2e7d32; background: #f6fbf6; }
+  .event-card.event-tool_use, .event-card.event-tool { border-left-color: #1565c0; background: #f5f9ff; }
+  .event-card.event-step_start, .event-card.event-step-start { border-left-color: #6a1b9a; background: #fbf7ff; }
+  .event-card.event-step_finish, .event-card.event-step-finish { border-left-color: #ef6c00; background: #fff8f0; }
+  .event-card.event-error, .event-card.event-raw { border-left-color: #c62828; background: #fff8f8; }
+  .event-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 7px; border-bottom: 1px solid rgba(0,0,0,0.06); font-family: system-ui, -apple-system, sans-serif; white-space: normal; }
+  .event-type { font-weight: 700; font-size: 10px; letter-spacing: 0.4px; text-transform: uppercase; color: #333; }
+  .event-meta { color: #777; font-size: 10px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .event-body { padding: 7px; white-space: pre-wrap; word-break: break-word; font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; color: #222; }
+  .event-body.compact { color: #555; font-family: system-ui, -apple-system, sans-serif; }
+  .event-kv { display: inline-block; margin-right: 10px; color: #555; }
+  .event-kv b { color: #333; }
   .copy-btn { padding: 1px 5px; font-size: 10px; cursor: pointer; border: 1px solid #ccc; border-radius: 2px; background: #fff; margin-left: 4px; }
   .copy-btn:hover { background: #e8e8e8; }
 
@@ -285,6 +301,10 @@ let formDirty = false;
 let isActionPending = false;
 let lastTaskDetail = null;
 let lastTaskRuns = null;
+let renderedTaskId = null;
+const detailsOpenState = new Map();
+const detailsScrollState = new Map();
+const panelScrollState = new Map();
 
 const STATUSES = ['All','PENDING','PLANNING','TEST_WRITING','TEST_REVIEWING','CODING','REVIEWING','NEEDS_ARBITRATION','COMPLETED','FAILED','CANCELLED'];
 
@@ -344,6 +364,115 @@ function showToast(msg, type) {
 
 function copyText(text) {
   navigator.clipboard.writeText(text).then(() => showToast('Copied', 'success'));
+}
+
+function parseNdjson(text) {
+  if (!text || !text.trim()) return [];
+  const lines = text.split(/\r?\n/).filter(line => line.trim());
+  if (lines.length === 0) return [];
+  const events = [];
+  let parsed = 0;
+  lines.forEach((line, idx) => {
+    try {
+      const event = JSON.parse(line);
+      if (event && typeof event === 'object') {
+        events.push({ raw: line, event });
+        parsed++;
+      } else {
+        events.push({ raw: line, event: { type: 'raw', text: line, line: idx + 1 } });
+      }
+    } catch {
+      events.push({ raw: line, event: { type: 'raw', text: line, line: idx + 1 } });
+    }
+  });
+  return parsed > 0 ? events : [];
+}
+
+function shortId(value) {
+  if (!value) return '';
+  const text = String(value);
+  return text.length > 14 ? text.substring(0, 14) + '...' : text;
+}
+
+function eventType(event) {
+  if (!event) return 'raw';
+  const part = event.part || {};
+  return event.type || part.type || 'raw';
+}
+
+function eventText(event) {
+  const part = event.part || {};
+  if (event.text != null) return event.text;
+  if (part.text != null) return part.text;
+  if (part.state && part.state.output != null) return part.state.output;
+  if (event.message != null) return event.message;
+  return '';
+}
+
+function eventMeta(event) {
+  const part = event.part || {};
+  const bits = [];
+  const session = event.sessionId || event.sessionID || part.sessionId || part.sessionID;
+  if (session) bits.push('session ' + shortId(session));
+  if (event.timestamp) bits.push(new Date(event.timestamp).toLocaleTimeString());
+  if (part.tool) bits.push('tool ' + part.tool);
+  if (part.callID) bits.push('call ' + shortId(part.callID));
+  if (part.reason) bits.push('reason ' + part.reason);
+  return bits.join(' | ');
+}
+
+function eventSummary(event) {
+  const type = eventType(event);
+  const part = event.part || {};
+  if (type === 'tool_use' || type === 'tool') {
+    const state = part.state || {};
+    const input = state.input || {};
+    const title = part.title || state.title || state.input?.description || '';
+    const status = state.status || '';
+    return '<span class="event-kv"><b>tool</b> ' + esc(part.tool || event.tool_name || 'unknown') + '</span>' +
+      (status ? '<span class="event-kv"><b>status</b> ' + esc(status) + '</span>' : '') +
+      (title ? '<span class="event-kv"><b>title</b> ' + esc(title) + '</span>' : '') +
+      (input.command ? '<span class="event-kv"><b>cmd</b> ' + esc(input.command) + '</span>' : '');
+  }
+  if (type === 'step_finish' || type === 'step-finish') {
+    const tokens = part.tokens || {};
+    return (part.reason ? '<span class="event-kv"><b>reason</b> ' + esc(part.reason) + '</span>' : '') +
+      (tokens.total != null ? '<span class="event-kv"><b>tokens</b> ' + esc(tokens.total) + '</span>' : '') +
+      (event.cost != null || part.cost != null ? '<span class="event-kv"><b>cost</b> ' + esc(event.cost ?? part.cost) + '</span>' : '');
+  }
+  if (type === 'step_start' || type === 'step-start') {
+    return '<span class="event-kv"><b>step</b> started</span>';
+  }
+  return '';
+}
+
+function renderEventOutput(text) {
+  const items = parseNdjson(text);
+  if (items.length === 0) {
+    return '<pre class="output">' + esc(text) + '</pre>';
+  }
+  let html = '<div class="output event-output">';
+  items.forEach(item => {
+    const event = item.event;
+    const type = eventType(event);
+    const normalized = String(type).replace(/_/g, '-');
+    const meta = eventMeta(event);
+    const bodyText = eventText(event);
+    const summary = eventSummary(event);
+    html += '<div class="event-card event-' + esc(String(type)) + ' event-' + esc(normalized) + '">' +
+      '<div class="event-head"><span class="event-type">' + esc(type) + '</span>' +
+      '<span class="event-meta" title="' + esc(meta) + '">' + esc(meta) + '</span></div>';
+    if (bodyText) {
+      html += '<div class="event-body">' + esc(bodyText) + '</div>';
+    } else if (summary) {
+      html += '<div class="event-body compact">' + summary + '</div>';
+    } else {
+      html += '<div class="event-body">' + esc(item.raw) + '</div>';
+    }
+    html += '</div>';
+  });
+  html += '</div>';
+  return html;
 }
 
 // --- System Status ---
@@ -459,10 +588,45 @@ function tr(label, value) {
   return '<tr><td>' + label + '</td><td>' + (value != null ? value : '-') + '</td></tr>';
 }
 
+function rememberDetailsState(panel) {
+  if (renderedTaskId) {
+    panelScrollState.set(renderedTaskId, panel.scrollTop);
+  }
+  panel.querySelectorAll('details[data-detail-key]').forEach(d => {
+    detailsOpenState.set(d.dataset.detailKey, d.open);
+    const output = d.querySelector('.output');
+    if (output) {
+      detailsScrollState.set(d.dataset.detailKey, output.scrollTop);
+    }
+  });
+}
+
+function restoreDetailsState(panel) {
+  panel.querySelectorAll('details[data-detail-key]').forEach(d => {
+    const saved = detailsOpenState.get(d.dataset.detailKey);
+    if (saved !== undefined) {
+      d.open = saved;
+    }
+    d.addEventListener('toggle', () => {
+      detailsOpenState.set(d.dataset.detailKey, d.open);
+    });
+    const output = d.querySelector('.output');
+    const savedScrollTop = detailsScrollState.get(d.dataset.detailKey);
+    if (output && savedScrollTop !== undefined) {
+      output.scrollTop = savedScrollTop;
+      output.addEventListener('scroll', () => {
+        detailsScrollState.set(d.dataset.detailKey, output.scrollTop);
+      });
+    }
+  });
+}
+
 function renderTaskDetail(t, runs) {
   lastTaskDetail = t;
   lastTaskRuns = runs;
   const panel = document.getElementById('detail-panel');
+  rememberDetailsState(panel);
+  const savedPanelScrollTop = panelScrollState.get(t.id);
   const canDispatch = !isActionPending && t.status === 'PENDING';
   const canCancel = !isActionPending && t.status !== 'COMPLETED' && t.status !== 'CANCELLED';
   const canRevise = !isActionPending && t.status === 'NEEDS_ARBITRATION';
@@ -489,7 +653,8 @@ function renderTaskDetail(t, runs) {
   ];
   phases.forEach(p => {
     if (p.val) {
-      phaseOutputsHtml += '<div class="phase-output"><details><summary>' + p.label + '</summary><pre class="output">' + esc(p.val) + '</pre></details></div>';
+      const key = 'task:' + t.id + ':phase:' + p.label;
+      phaseOutputsHtml += '<div class="phase-output"><details data-detail-key="' + esc(key) + '"><summary>' + p.label + '</summary><pre class="output">' + esc(p.val) + '</pre></details></div>';
     }
   });
   if (phaseOutputsHtml) {
@@ -514,10 +679,12 @@ function renderTaskDetail(t, runs) {
           (r.continueCount > 0 ? ' | Continues: ' + r.continueCount : '') +
         '</div>';
       if (r.prompt) {
-        runsHtml += '<details><summary style="cursor:pointer;font-size:11px;color:#1a73e8;margin-top:3px">Prompt</summary><pre class="output">' + esc(r.prompt) + '</pre></details>';
+        const promptKey = 'task:' + t.id + ':run:' + r.id + ':prompt';
+        runsHtml += '<details data-detail-key="' + esc(promptKey) + '"><summary style="cursor:pointer;font-size:11px;color:#1a73e8;margin-top:3px">Prompt</summary><pre class="output">' + esc(r.prompt) + '</pre></details>';
       }
       if (r.output) {
-        runsHtml += '<details><summary style="cursor:pointer;font-size:11px;color:#1a73e8;margin-top:3px">Output</summary><pre class="output">' + esc(r.output) + '</pre></details>';
+        const outputKey = 'task:' + t.id + ':run:' + r.id + ':output';
+        runsHtml += '<details data-detail-key="' + esc(outputKey) + '"><summary style="cursor:pointer;font-size:11px;color:#1a73e8;margin-top:3px">Output</summary>' + renderEventOutput(r.output) + '</details>';
       }
       runsHtml += '</div>';
     });
@@ -568,6 +735,11 @@ function renderTaskDetail(t, runs) {
     childrenHtml +
     phaseOutputsHtml +
     runsHtml;
+  restoreDetailsState(panel);
+  if (savedPanelScrollTop !== undefined) {
+    panel.scrollTop = savedPanelScrollTop;
+  }
+  renderedTaskId = t.id;
 }
 
 function focusRevise() {

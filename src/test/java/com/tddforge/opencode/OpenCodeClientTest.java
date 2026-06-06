@@ -199,6 +199,8 @@ class OpenCodeClientTest {
         assertThat(run.output()).contains("v1");
         assertThat(run.output()).contains("--agent");
         assertThat(run.output()).contains("coder");
+        assertThat(run.output()).contains("stdin: test prompt");
+        assertThat(run.output()).doesNotContain("args: test prompt");
     }
 
     @Test

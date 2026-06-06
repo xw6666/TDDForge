@@ -189,16 +189,18 @@ The changes you make in this phase must form a correct test-only git commit that
 3. Do NOT weaken, delete, or bypass existing tests.
 4. Prefer focused tests close to the affected behavior instead of broad brittle integration tests, unless integration coverage is necessary.
 5. The tests must be capable of catching an incorrect or missing implementation. Avoid tests that only assert mocks, implementation details, or superficial existence.
-6. If the current code already satisfies the behavior, add regression coverage where valuable and clearly explain why the test already passes.
-7. Run the most relevant test command available in the repository. Do not run the full suite unless the repository convention requires it or the scope is unclear.
-8. Classify the test command result as exactly one of:
+6. Tests must be executable by the repository's test runner. Do not use Markdown, plain text, documentation files, manual inspection, or file-existence-only checks as the test deliverable.
+7. Commit at least one executable test source/spec file under the repository's normal test locations, such as src/test, test, tests, or an equivalent framework-specific test directory.
+8. If the current code already satisfies the behavior, add regression coverage where valuable and clearly explain why the test already passes.
+9. Run the most relevant test command available in the repository. Do not run the full suite unless the repository convention requires it or the scope is unclear.
+10. Classify the test command result as exactly one of:
    - PASS: the current implementation already satisfies the new/updated tests.
    - EXPECTED_RED: the tests compile and run, but fail because the requested behavior is not implemented yet.
    - INVALID: tests do not compile, cannot run, use broken fixtures, use the wrong command, or fail for reasons unrelated to the requested behavior.
-9. If the result is INVALID, keep fixing the tests before finishing. Do not hand off invalid tests.
-10. Commit only the test-related changes. The commit should not include environment setup, dependency cache, build outputs, or unrelated formatting.
-11. Use ONLY relative file paths in your final response.
-12. Final response must include:
+11. If the result is INVALID, keep fixing the tests before finishing. Do not hand off invalid tests.
+12. Commit only the test-related changes. The commit should not include environment setup, dependency cache, build outputs, documentation-only files, or unrelated formatting.
+13. Use ONLY relative file paths in your final response.
+14. Final response must include:
    - test files changed
    - behavior covered
    - exact test command(s) run

@@ -92,6 +92,9 @@ class TaskExecutionServiceTest {
         runtimeModelConfig = new RuntimeModelConfig(opencodeConfig);
         runtimeModelConfig.init();
 
+        lenient().when(worktreeManager.committedFiles(any(), any()))
+                .thenReturn(List.of("src/test/java/com/tddforge/ExampleTest.java"));
+
         service = new TaskExecutionService(
                 taskRepository, agentRunRepository, taskEventRepository,
                 plannerAgent, testWriterAgent, testReviewerAgent, coderAgent, reviewerAgent,
@@ -288,6 +291,97 @@ class TaskExecutionServiceTest {
 
     @Nested
     class TestWriterMissingCommit {
+
+        @Test
+        void shouldRetryWhenTestWriterCommitHasNoExecutableTestFile() {
+            Task task = createDefaultTask();
+            setupTaskSaveWithReload(task);
+
+            String plannerJson = "{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Simple\",\"plan\":\"Do the thing\"}";
+            AgentRun plannerRun = createAgentRun(ndjsonWithText(plannerJson), 0);
+            ExtractionResult<PlannerResult> plannerExtract = realExtractor.extractPlannerResult(plannerRun);
+            when(plannerAgent.run(any())).thenReturn(new AgentResult<>(plannerRun, plannerExtract));
+            when(worktreeManager.generateBranchName(any(), any())).thenReturn("task-1/test-task");
+            when(worktreeManager.createWorktree(any(), any())).thenReturn(Path.of("/worktrees/task-1"));
+            when(worktreeManager.committedFiles(Path.of("/worktrees/task-1"), "abc123"))
+                    .thenReturn(List.of("test/test.md"));
+            when(worktreeManager.committedFiles(Path.of("/worktrees/task-1"), "def456"))
+                    .thenReturn(List.of("src/test/java/com/tddforge/ExampleTest.java"));
+
+            AgentRun twMarkdownRun = createAgentRun(ndjsonWithText("Test classification: PASS"), 0);
+            ExtractionResult<TestWriterResult> twMarkdownExtract = ExtractionResult.success(
+                    new TestWriterResult("Markdown only", "mvn test", "PASS", "abc123", List.of("test/test.md")), "");
+
+            AgentRun twValidRun = createAgentRun(ndjsonWithText("Test classification: EXPECTED_RED"), 0);
+            ExtractionResult<TestWriterResult> twValidExtract = ExtractionResult.success(
+                    new TestWriterResult("Valid tests", "mvn test", "EXPECTED_RED", "def456", List.of("ExampleTest.java")), "");
+
+            when(testWriterAgent.run(any()))
+                    .thenReturn(new AgentResult<>(twMarkdownRun, twMarkdownExtract))
+                    .thenReturn(new AgentResult<>(twValidRun, twValidExtract));
+
+            AgentRun trRun = createAgentRun(ndjsonWithText("APPROVE\nGood tests."), 0);
+            ExtractionResult<TestReviewerResult> trExtract = ExtractionResult.success(
+                    new TestReviewerResult(ReviewVerdict.APPROVE, "Good tests."), "");
+            when(testReviewerAgent.run(any())).thenReturn(new AgentResult<>(trRun, trExtract));
+
+            AgentRun coderRun = createAgentRun(ndjsonWithText("Implementation done"), 0);
+            ExtractionResult<CoderResult> coderExtract = ExtractionResult.success(
+                    new CoderResult("Fixed bug", "mvn test", "pass", "ghi789", List.of()), "");
+            when(coderAgent.run(any())).thenReturn(new AgentResult<>(coderRun, coderExtract));
+
+            AgentRun reviewerRun = createAgentRun(ndjsonWithText("APPROVE\nEverything looks good."), 0);
+            ExtractionResult<ReviewerResult> reviewerExtract = ExtractionResult.success(
+                    new ReviewerResult("reviewer-1", ReviewVerdict.APPROVE, "Everything looks good.", null), "");
+            when(reviewerAgent.run(any())).thenReturn(new AgentResult<>(reviewerRun, reviewerExtract));
+
+            TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
+
+            assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.Success.class);
+            verify(testWriterAgent, times(2)).run(any());
+            verify(testReviewerAgent).run(any());
+        }
+
+        @Test
+        void shouldInferCommitHashFromWorktreeHeadWhenOutputOmitsCommitHash() {
+            Task task = createDefaultTask();
+            setupTaskSaveWithReload(task);
+
+            String plannerJson = "{\"complexity\":\"medium\",\"split\":false,\"reason\":\"Simple\",\"plan\":\"Do the thing\"}";
+            AgentRun plannerRun = createAgentRun(ndjsonWithText(plannerJson), 0);
+            ExtractionResult<PlannerResult> plannerExtract = realExtractor.extractPlannerResult(plannerRun);
+            when(plannerAgent.run(any())).thenReturn(new AgentResult<>(plannerRun, plannerExtract));
+            when(worktreeManager.generateBranchName(any(), any())).thenReturn("task-1/test-task");
+            when(worktreeManager.createWorktree(any(), any())).thenReturn(Path.of("/worktrees/task-1"));
+            when(worktreeManager.hasCommitsSinceBase(Path.of("/worktrees/task-1"))).thenReturn(true);
+            when(worktreeManager.currentHead(Path.of("/worktrees/task-1"))).thenReturn("abc123def456");
+
+            AgentRun twRun = createAgentRun(ndjsonWithText("Test classification: EXPECTED_RED"), 0);
+            ExtractionResult<TestWriterResult> twExtract = ExtractionResult.success(
+                    new TestWriterResult("Tests added", "mvn test", "EXPECTED_RED", null, List.of("Test.java")), "");
+            when(testWriterAgent.run(any())).thenReturn(new AgentResult<>(twRun, twExtract));
+
+            AgentRun trRun = createAgentRun(ndjsonWithText("APPROVE\nGood tests."), 0);
+            ExtractionResult<TestReviewerResult> trExtract = ExtractionResult.success(
+                    new TestReviewerResult(ReviewVerdict.APPROVE, "Good tests."), "");
+            when(testReviewerAgent.run(any())).thenReturn(new AgentResult<>(trRun, trExtract));
+
+            AgentRun coderRun = createAgentRun(ndjsonWithText("Implementation done"), 0);
+            ExtractionResult<CoderResult> coderExtract = ExtractionResult.success(
+                    new CoderResult("Fixed bug", "mvn test", "pass", "def456", List.of()), "");
+            when(coderAgent.run(any())).thenReturn(new AgentResult<>(coderRun, coderExtract));
+
+            AgentRun reviewerRun = createAgentRun(ndjsonWithText("APPROVE\nEverything looks good."), 0);
+            ExtractionResult<ReviewerResult> reviewerExtract = ExtractionResult.success(
+                    new ReviewerResult("reviewer-1", ReviewVerdict.APPROVE, "Everything looks good.", null), "");
+            when(reviewerAgent.run(any())).thenReturn(new AgentResult<>(reviewerRun, reviewerExtract));
+
+            TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
+
+            assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.Success.class);
+            verify(testWriterAgent).run(any());
+            verify(testReviewerAgent).run(any());
+        }
 
         @Test
         void shouldRetryWhenTestWriterReturnsNoCommitHash() {

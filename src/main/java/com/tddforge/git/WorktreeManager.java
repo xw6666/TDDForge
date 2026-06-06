@@ -88,6 +88,44 @@ public class WorktreeManager {
         return parseChangedFiles(statusResult.stdout());
     }
 
+    public String currentHead(Path worktreePath) {
+        validatePathInWorktreeDir(worktreePath);
+
+        GitCommandResult result = runGit(worktreePath, "rev-parse", "HEAD");
+        if (!result.success()) {
+            throw new WorktreeManagerException("Failed to resolve HEAD: " + result.combinedOutput(), result);
+        }
+        return result.stdout();
+    }
+
+    public boolean hasCommitsSinceBase(Path worktreePath) {
+        validatePathInWorktreeDir(worktreePath);
+
+        String baseBranch = repoConfig.getBaseBranch();
+        GitCommandResult result = runGit(worktreePath, "rev-list", "--count", "origin/" + baseBranch + "..HEAD");
+        if (!result.success()) {
+            throw new WorktreeManagerException("Failed to count worktree commits: " + result.combinedOutput(), result);
+        }
+        try {
+            return Integer.parseInt(result.stdout().trim()) > 0;
+        } catch (NumberFormatException e) {
+            throw new WorktreeManagerException("Invalid git rev-list count: " + result.stdout(), e);
+        }
+    }
+
+    public List<String> committedFiles(Path worktreePath, String commitHash) {
+        validatePathInWorktreeDir(worktreePath);
+        if (commitHash == null || commitHash.isBlank()) {
+            throw new WorktreeManagerException("Commit hash must not be null or blank");
+        }
+
+        GitCommandResult result = runGit(worktreePath, "diff-tree", "--no-commit-id", "--name-only", "-r", commitHash);
+        if (!result.success()) {
+            throw new WorktreeManagerException("Failed to list committed files: " + result.combinedOutput(), result);
+        }
+        return parseLines(result.stdout());
+    }
+
     public void removeWorktree(Path worktreePath) {
         validatePathInWorktreeDir(worktreePath);
 
@@ -314,7 +352,7 @@ public class WorktreeManager {
         if (text == null || text.isBlank()) {
             return "untitled";
         }
-        return text.toLowerCase()
+        String slug = text.toLowerCase()
                 .replaceAll("[^a-z0-9\\s-]", "")
                 .replaceAll("\\s+", "-")
                 .replaceAll("-+", "-")
@@ -323,6 +361,7 @@ public class WorktreeManager {
                 .limit(40)
                 .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append)
                 .toString();
+        return slug.isBlank() ? "untitled" : slug;
     }
 
     private GitStatus parseStatus(String output) {
@@ -379,5 +418,19 @@ public class WorktreeManager {
             }
         }
         return files.stream().distinct().toList();
+    }
+
+    private List<String> parseLines(String output) {
+        List<String> lines = new ArrayList<>();
+        if (output == null || output.isBlank()) {
+            return lines;
+        }
+        for (String line : output.split("\n")) {
+            String trimmed = line.trim();
+            if (!trimmed.isEmpty()) {
+                lines.add(trimmed);
+            }
+        }
+        return lines;
     }
 }
