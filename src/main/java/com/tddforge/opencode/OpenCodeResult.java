@@ -9,6 +9,7 @@ import java.util.List;
 public record OpenCodeResult(
         @Nullable @JsonProperty("sessionId") String sessionId,
         @JsonProperty("text") String text,
+        @JsonProperty("lastText") String lastText,
         @Nullable @JsonProperty("lastStopStepText") String lastStopStepText,
         @JsonProperty("readableSteps") List<String> readableSteps,
         @JsonProperty("toolCalls") List<ToolCallSummary> toolCalls,
@@ -17,6 +18,7 @@ public record OpenCodeResult(
 
     public OpenCodeResult {
         if (text == null) text = "";
+        if (lastText == null) lastText = "";
         if (readableSteps == null) readableSteps = List.of();
         if (toolCalls == null) toolCalls = List.of();
     }

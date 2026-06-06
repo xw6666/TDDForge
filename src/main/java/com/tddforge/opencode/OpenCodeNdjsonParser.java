@@ -18,11 +18,12 @@ public class OpenCodeNdjsonParser {
 
     public OpenCodeResult parse(String rawOutput) {
         if (rawOutput == null) {
-            return new OpenCodeResult(null, "", null, List.of(), List.of(), false);
+            return new OpenCodeResult(null, "", "", null, List.of(), List.of(), false);
         }
 
         String sessionId = null;
         StringBuilder textBuilder = new StringBuilder();
+        String lastText = "";
         List<String> readableSteps = new ArrayList<>();
         List<OpenCodeResult.ToolCallSummary> toolCalls = new ArrayList<>();
 
@@ -58,6 +59,7 @@ public class OpenCodeNdjsonParser {
             if ("text".equals(event.type()) && event.text() != null) {
                 textBuilder.append(event.text());
                 currentStepText.append(event.text());
+                lastText = event.text();
             }
 
             if ("step_start".equals(event.type()) && event.stepStart() != null) {
@@ -102,6 +104,7 @@ public class OpenCodeNdjsonParser {
         return new OpenCodeResult(
                 sessionId,
                 textBuilder.toString(),
+                lastText,
                 lastStopStepText,
                 List.copyOf(readableSteps),
                 List.copyOf(toolCalls),
