@@ -26,7 +26,7 @@ public class StartupRecoveryService {
 
     private static final Logger log = LoggerFactory.getLogger(StartupRecoveryService.class);
 
-    static final String RECOVERY_ERROR_MESSAGE = "daemon restarted during active execution";
+    public static final String RECOVERY_ERROR_MESSAGE = "daemon restarted during active execution";
     static final String RECOVERY_EVENT_TYPE = "RECOVERY";
 
     private static final Set<TaskStatus> ACTIVE_STATUSES = Set.of(

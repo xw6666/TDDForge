@@ -212,6 +212,30 @@ class TaskExecutionServiceTest {
 
             verify(worktreeManager, never()).createWorktree(any(), any());
         }
+
+        @Test
+        void shouldReturnExistingChildrenWithoutReplanningWhenParentAlreadySplit() {
+            Task parent = createDefaultTask();
+            parent.setStatus(TaskStatus.FAILED);
+            Task child = new Task("child-1", "Child Task", "Child Description", "/repo");
+            child.setParentId("task-1");
+            child.setStatus(TaskStatus.PENDING);
+            when(taskRepository.findById("task-1")).thenReturn(Optional.of(TaskEntity.fromDomain(parent)));
+            when(taskRepository.findByParentId("task-1")).thenReturn(List.of(TaskEntity.fromDomain(child)));
+            when(taskRepository.save(any(TaskEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(taskEventRepository.save(any(TaskEventEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            TaskExecutionService.ExecutionOutcome outcome = service.executeTask("task-1");
+
+            assertThat(outcome).isInstanceOf(TaskExecutionService.ExecutionOutcome.SplitParentWaiting.class);
+            TaskExecutionService.ExecutionOutcome.SplitParentWaiting split =
+                    (TaskExecutionService.ExecutionOutcome.SplitParentWaiting) outcome;
+            assertThat(split.childTasks()).extracting(Task::getId).containsExactly("child-1");
+            verify(plannerAgent, never()).run(any());
+            ArgumentCaptor<TaskEntity> captor = ArgumentCaptor.forClass(TaskEntity.class);
+            verify(taskRepository).save(captor.capture());
+            assertThat(captor.getValue().getStatus()).isEqualTo(TaskStatus.PENDING);
+        }
     }
 
     @Nested

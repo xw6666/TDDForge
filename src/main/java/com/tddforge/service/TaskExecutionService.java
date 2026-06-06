@@ -108,6 +108,17 @@ public class TaskExecutionService {
             return new ExecutionOutcome.Cancelled(task);
         }
 
+        List<Task> existingChildTasks = existingChildTasks(task.getId());
+        if ((task.getParentId() == null || task.getParentId().isBlank()) && !existingChildTasks.isEmpty()) {
+            if (task.getStatus() != TaskStatus.PENDING) {
+                task.setStatus(TaskStatus.PENDING);
+                task.setUpdatedAt(Instant.now());
+                saveTask(task);
+            }
+            recordEvent(task, "PLANNER_SPLIT_RESUMED", "Parent task resumed with existing child tasks");
+            return new ExecutionOutcome.SplitParentWaiting(task, existingChildTasks);
+        }
+
         if (dependencyTracker.isBlockedByDependencies(taskId)) {
             List<DependencyTracker.BlockReason> blockReasons = dependencyTracker.getBlockingReasons(taskId);
             String reason = blockReasons.stream()
@@ -307,6 +318,8 @@ public class TaskExecutionService {
         return switch (plannerOutcome) {
             case PlannerService.PlannerOutcome.Success(var updatedTask, var childTasks) -> {
                 if (!childTasks.isEmpty()) {
+                    updatedTask.setStatus(TaskStatus.PENDING);
+                    updatedTask.setError(null);
                     updatedTask.setUpdatedAt(Instant.now());
                     for (Task child : childTasks) {
                         saveTask(child);
@@ -333,6 +346,16 @@ public class TaskExecutionService {
                 yield new ExecutionOutcome.Failed(fTask, error);
             }
         };
+    }
+
+    private List<Task> existingChildTasks(String parentId) {
+        List<TaskEntity> childEntities = taskRepository.findByParentId(parentId);
+        if (childEntities == null || childEntities.isEmpty()) {
+            return List.of();
+        }
+        return childEntities.stream()
+                .map(TaskEntity::toDomain)
+                .toList();
     }
 
     private TaskStatus determineResumeStatus(Task task) {

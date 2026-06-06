@@ -671,4 +671,74 @@ class OrchestratorTest {
             orchestrator.stop();
         }
     }
+
+    @Nested
+    class SplitChildDispatch {
+
+        @Test
+        void shouldAutomaticallyDispatchReadyChildrenAfterParentSplits() throws Exception {
+            orchestratorConfig.setMaxParallelTasks(2);
+            orchestrator.start();
+
+            Task parent = new Task("parent-1", "Parent", "Description", "/repo");
+            Task child = new Task("child-1", "Child", "Description", "/repo");
+            child.setParentId("parent-1");
+            child.setStatus(TaskStatus.PENDING);
+            TaskEntity parentEntity = createPendingTaskEntity("parent-1");
+            TaskEntity childEntity = TaskEntity.fromDomain(child);
+
+            when(taskRepository.findById("parent-1")).thenReturn(Optional.of(parentEntity));
+            when(taskRepository.findById("child-1")).thenReturn(Optional.of(childEntity));
+            when(dependencyTracker.isBlockedByDependencies(any())).thenReturn(false);
+            when(taskExecutionService.executeTask("parent-1")).thenReturn(
+                    new TaskExecutionService.ExecutionOutcome.SplitParentWaiting(parent, List.of(child)));
+            when(taskExecutionService.executeTask("child-1")).thenReturn(
+                    new TaskExecutionService.ExecutionOutcome.Success(child));
+
+            orchestrator.dispatchTask("parent-1");
+
+            await().atMost(5, TimeUnit.SECONDS).untilAsserted(() ->
+                    verify(taskExecutionService).executeTask("child-1"));
+
+            orchestrator.stop();
+        }
+
+        @Test
+        void shouldDispatchReadySiblingAfterChildCompletes() throws Exception {
+            orchestratorConfig.setMaxParallelTasks(1);
+            orchestrator.start();
+
+            Task child1 = new Task("child-1", "Child 1", "Description", "/repo");
+            child1.setParentId("parent-1");
+            child1.setStatus(TaskStatus.PENDING);
+            Task child2 = new Task("child-2", "Child 2", "Description", "/repo");
+            child2.setParentId("parent-1");
+            child2.setStatus(TaskStatus.PENDING);
+            Task child1Completed = new Task("child-1", "Child 1", "Description", "/repo");
+            child1Completed.setParentId("parent-1");
+            child1Completed.setStatus(TaskStatus.COMPLETED);
+
+            when(taskRepository.findById("child-1")).thenReturn(Optional.of(TaskEntity.fromDomain(child1)));
+            when(taskRepository.findById("child-2")).thenReturn(Optional.of(TaskEntity.fromDomain(child2)));
+            when(taskRepository.findByParentId("parent-1"))
+                    .thenReturn(List.of(TaskEntity.fromDomain(child1Completed), TaskEntity.fromDomain(child2)));
+            when(dependencyTracker.isBlockedByDependencies("child-1")).thenReturn(false);
+            when(dependencyTracker.isBlockedByDependencies("child-2"))
+                    .thenReturn(true)
+                    .thenReturn(false);
+            when(taskExecutionService.executeTask("child-1")).thenReturn(
+                    new TaskExecutionService.ExecutionOutcome.Success(child1));
+            when(taskExecutionService.executeTask("child-2")).thenReturn(
+                    new TaskExecutionService.ExecutionOutcome.Success(child2));
+
+            orchestrator.dispatchTask("child-1");
+            boolean blocked = orchestrator.dispatchTask("child-2");
+
+            assertThat(blocked).isFalse();
+            await().atMost(5, TimeUnit.SECONDS).untilAsserted(() ->
+                    verify(taskExecutionService).executeTask("child-2"));
+
+            orchestrator.stop();
+        }
+    }
 }

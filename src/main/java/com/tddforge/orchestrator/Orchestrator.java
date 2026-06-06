@@ -142,8 +142,9 @@ public class Orchestrator {
 
     private void submitForExecution(String taskId) {
         Runnable taskWrapper = createTaskWrapper(taskId);
-        Future<?> future = executorService.submit(taskWrapper);
+        FutureTask<Void> future = new FutureTask<>(taskWrapper, null);
         runningTasks.put(taskId, future);
+        executorService.execute(future);
         if (future.isDone()) {
             runningTasks.remove(taskId);
             dispatchedOrPending.remove(taskId);
@@ -154,10 +155,11 @@ public class Orchestrator {
 
     private Runnable createTaskWrapper(String taskId) {
         return () -> {
+            TaskExecutionService.ExecutionOutcome outcome = null;
             MdcSupport.setTaskContext(taskId);
             try {
                 log.info("Task {} execution started", taskId);
-                taskExecutionService.executeTask(taskId);
+                outcome = taskExecutionService.executeTask(taskId);
                 log.info("Task {} execution completed", taskId);
             } catch (Exception e) {
                 log.error("Task {} execution failed with exception", taskId, e);
@@ -166,8 +168,56 @@ public class Orchestrator {
                 runningTasks.remove(taskId);
                 dispatchedOrPending.remove(taskId);
                 log.info("Task {} removed from running map, running={}", taskId, runningTasks.size());
+                dispatchFollowUpTasks(outcome);
                 refreshPendingQueue();
             }
+        };
+    }
+
+    private void dispatchFollowUpTasks(TaskExecutionService.ExecutionOutcome outcome) {
+        if (!started || outcome == null) {
+            return;
+        }
+        if (outcome instanceof TaskExecutionService.ExecutionOutcome.SplitParentWaiting split) {
+            dispatchChildTasks(split.childTasks());
+            return;
+        }
+        if (outcome instanceof TaskExecutionService.ExecutionOutcome.Success success) {
+            Task task = success.task();
+            if (task.getParentId() != null && !task.getParentId().isBlank()) {
+                List<Task> siblings = taskRepository.findByParentId(task.getParentId()).stream()
+                        .map(TaskEntity::toDomain)
+                        .filter(sibling -> !sibling.getId().equals(task.getId()))
+                        .toList();
+                dispatchChildTasks(siblings);
+            }
+        }
+    }
+
+    private void dispatchChildTasks(List<Task> childTasks) {
+        childTasks.stream()
+                .filter(child -> child.getStatus() == TaskStatus.PENDING)
+                .sorted(Comparator
+                        .comparingInt((Task task) -> priorityRank(task.getPriority()))
+                        .thenComparing(Task::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(Task::getId))
+                .forEach(child -> {
+                    boolean accepted = dispatchTask(child.getId());
+                    if (accepted) {
+                        log.info("Child task {} dispatched automatically", child.getId());
+                    }
+                });
+    }
+
+    private int priorityRank(com.tddforge.domain.TaskPriority priority) {
+        if (priority == null) {
+            return 2;
+        }
+        return switch (priority) {
+            case CRITICAL -> 0;
+            case HIGH -> 1;
+            case MEDIUM -> 2;
+            case LOW -> 3;
         };
     }
 
